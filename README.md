@@ -1,11 +1,14 @@
 # 529_mp_stream
 
-# TODO
-run rlnc on quic
+## TODO
 
-#Setup
+- Test RLNC on QUIC packet, make sure that even if some packet are lost, data can still be recovered at the receiver side
+- Enabling RLNC in QUIC, please check 4.3 in CellFusion: Multipath Vehicle-to-Cloud Video Streaming with Network Coding in the Wild
+for implementation
 
-To run the server, please download the moive by get_your_movies.sh in goDASHbed (tos_4sec_full is enough, comment other folders)
+## Setup
+
+To run the server, please download the movie by get_your_movies.sh in goDASHbed (tos_4sec_full is enough, comment other folders)
 
 Notice that is file is over 50G, make sure you have enough space on your VM
 
