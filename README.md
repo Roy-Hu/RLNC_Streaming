@@ -1,5 +1,10 @@
 # 529_mp_stream
 
+# TODO
+run rlnc on quic
+
+#Setup
+
 To run the server, please download the moive by get_your_movies.sh in goDASHbed (tos_4sec_full is enough, comment other folders)
 
 Notice that is file is over 50G, make sure you have enough space on your VM
