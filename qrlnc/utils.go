@@ -1,7 +1,5 @@
 package qrlnc
 
-import "fmt"
-
 // binMatRref performs the Row Reduction to Echelon Form on a binary matrix
 func binMatRref(A *[][]int) ([][]int, int, []bool) {
 	B := [][]int{}
@@ -33,7 +31,6 @@ func binMatRref(A *[][]int) ([][]int, int, []bool) {
 		}
 	}
 
-	fmt.Printf("A: %v\n", A)
 	n = len(B)
 	nk := len(B[0])
 	// Backwards sweep
