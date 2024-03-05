@@ -784,14 +784,15 @@ func (s *session) sendPackedPacket(packet *packedPacket, pth *path) error {
 		EncryptionLevel: packet.encryptionLevel,
 	})
 	//call encoding here?
-	//encodedPacket = xnc.encodePacketDataToByte(packet.raw)
+	encodedPacket = xnc.encodePacketDataToByte(packet.raw)
 	if err != nil {
 		return err
 	}
 	pth.sentPacket<-struct{}{}
 
 	s.logPacket(packet, pth.pathID)
-	return pth.conn.Write(packet.raw)
+	//changing to encoded packet (originally packet.raw)
+	return pth.conn.Write(encodedPacket)
 }
 
 func (s *session) sendConnectionClose(quicErr *qerr.QuicError) error {
