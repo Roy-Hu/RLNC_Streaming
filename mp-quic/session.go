@@ -783,6 +783,8 @@ func (s *session) sendPackedPacket(packet *packedPacket, pth *path) error {
 		Length:          protocol.ByteCount(len(packet.raw)),
 		EncryptionLevel: packet.encryptionLevel,
 	})
+	//call encoding here?
+	//encodedPacket = xnc.encodePacketDataToByte(packet.raw)
 	if err != nil {
 		return err
 	}
