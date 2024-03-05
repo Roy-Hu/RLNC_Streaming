@@ -4,6 +4,8 @@
 
 - Enabling XNC in MPQUIC, please check 4.3 in CellFusion: Multipath Vehicle-to-Cloud Video Streaming with Network Coding in the Wild for implementation
 
+- Test XNC in MPQUIC
+
 ## Setup
 
 To run the server, please download the movie by get_your_movies.sh in goDASHbed (tos_4sec_full is enough, comment other folders)
