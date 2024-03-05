@@ -273,7 +273,8 @@ func (c *client) handlePacket(rcvRawPacket *receivedRawPacket) {
 	var packet []byte
 	var rcvTime time.Time
 	var pconn net.PacketConn
-
+	recBytes = xnc.packetsToBytes(rcvRawPacket)
+	decodedData = xnc.decodePacketDataToByte(recBytes)
 	if rcvRawPacket.remoteAddr != nil {
 		remoteAddr = rcvRawPacket.remoteAddr
 	}
