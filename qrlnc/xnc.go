@@ -6,8 +6,8 @@ import (
 )
 
 // 8192 bits = 1024 bytes
-var pktNumBit int = 1024
-var rngSeed int64 = int64(1)
+var PktNumBit int = 1024
+var RngSeed int64 = int64(1)
 
 type XNC struct {
 	BitSize     int
@@ -16,7 +16,7 @@ type XNC struct {
 	Packet      []int
 }
 
-func encodePacketDataToByte(data XNC) ([]byte, error) {
+func EncodePacketDataToByte(data XNC) ([]byte, error) {
 	var buf bytes.Buffer
 	encoder := gob.NewEncoder(&buf)
 	if err := encoder.Encode(data); err != nil {
@@ -25,7 +25,7 @@ func encodePacketDataToByte(data XNC) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func decodePacketDataToByte(data []byte) (XNC, error) {
+func DecodePacketDataToByte(data []byte) (XNC, error) {
 	buf := bytes.NewBuffer(data)
 	decoder := gob.NewDecoder(buf)
 	var decodedData XNC
@@ -35,12 +35,12 @@ func decodePacketDataToByte(data []byte) (XNC, error) {
 	return decodedData, nil
 }
 
-func bytesToPackets(byteData []byte, numBitPacket int) [][]int {
+func BytesToPackets(byteData []byte, NumBitPacket int) [][]int {
 	// Calculate the total number of bits in the byteData
 	totalBits := len(byteData) * 8
-	// Calculate the number of packets needed based on the numBitPacket
-	numPackets := totalBits / numBitPacket
-	if totalBits%numBitPacket != 0 {
+	// Calculate the number of packets needed based on the NumBitPacket
+	numPackets := totalBits / NumBitPacket
+	if totalBits%NumBitPacket != 0 {
 		numPackets++ // Add an extra packet if there's a remainder
 	}
 
@@ -48,8 +48,8 @@ func bytesToPackets(byteData []byte, numBitPacket int) [][]int {
 	bitIndex := 0 // To keep track of which bit we're on across the byteData
 
 	for i := 0; i < numPackets; i++ {
-		packet := make([]int, numBitPacket)
-		for j := 0; j < numBitPacket; j++ {
+		packet := make([]int, NumBitPacket)
+		for j := 0; j < NumBitPacket; j++ {
 			if bitIndex >= totalBits {
 				// If we've processed all bits, remaining packet bits are set to 0
 				packet[j] = 0
@@ -67,7 +67,7 @@ func bytesToPackets(byteData []byte, numBitPacket int) [][]int {
 	return packets
 }
 
-func packetsToBytes(packets [][]int, numBitPacket int, originalBitSize int) []byte {
+func PacketsToBytes(packets [][]int, NumBitPacket int, originalBitSize int) []byte {
 	totalBytes := originalBitSize / 8
 	if originalBitSize%8 != 0 {
 		totalBytes++ // Account for leftover bits

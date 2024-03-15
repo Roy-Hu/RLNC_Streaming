@@ -5,27 +5,27 @@ import (
 )
 
 type BinaryCoder struct {
-	numSymbols        int
-	numBitPacket      int
+	NumSymbols        int
+	NumBitPacket      int
 	rng               *rand.Rand
 	numIndependent    int
 	symbolDecoded     []bool
 	id                [][]int
 	coefficientMatrix [][]int
-	packetVector      [][]int
+	PacketVector      [][]int
 }
 
-func InitBinaryCoder(numSymbols int, packetSize int, rngSeed int64) *BinaryCoder {
-	rng := rand.New(rand.NewSource(rngSeed))
+func InitBinaryCoder(NumSymbols int, packetSize int, RngSeed int64) *BinaryCoder {
+	rng := rand.New(rand.NewSource(RngSeed))
 	bc := &BinaryCoder{
-		numSymbols:        numSymbols,
-		numBitPacket:      packetSize,
+		NumSymbols:        NumSymbols,
+		NumBitPacket:      packetSize,
 		rng:               rng,
 		numIndependent:    0,
-		symbolDecoded:     make([]bool, numSymbols),
-		id:                identity(numSymbols),
-		coefficientMatrix: make([][]int, numSymbols),
-		packetVector:      make([][]int, numSymbols),
+		symbolDecoded:     make([]bool, NumSymbols),
+		id:                identity(NumSymbols),
+		coefficientMatrix: make([][]int, NumSymbols),
+		PacketVector:      make([][]int, NumSymbols),
 	}
 	bc.reset()
 	return bc
@@ -33,21 +33,21 @@ func InitBinaryCoder(numSymbols int, packetSize int, rngSeed int64) *BinaryCoder
 
 func (bc *BinaryCoder) reset() {
 	bc.numIndependent = 0
-	bc.symbolDecoded = make([]bool, bc.numSymbols)
-	bc.id = identity(bc.numSymbols)
+	bc.symbolDecoded = make([]bool, bc.NumSymbols)
+	bc.id = identity(bc.NumSymbols)
 
 	// python: self.coefficient_matrix = [ [0] * self.num_symbols + self.id[k] for k in range(self.num_symbols)] # save current rref to reduce computational load in the future
-	for k := 0; k < bc.numSymbols; k++ {
-		bc.coefficientMatrix[k] = make([]int, 2*bc.numSymbols)
-		for j := 0; j < bc.numSymbols; j++ {
-			bc.coefficientMatrix[k][bc.numSymbols+j] = bc.id[k][j]
+	for k := 0; k < bc.NumSymbols; k++ {
+		bc.coefficientMatrix[k] = make([]int, 2*bc.NumSymbols)
+		for j := 0; j < bc.NumSymbols; j++ {
+			bc.coefficientMatrix[k][bc.NumSymbols+j] = bc.id[k][j]
 		}
 	}
-	bc.packetVector = make([][]int, bc.numSymbols)
+	bc.PacketVector = make([][]int, bc.NumSymbols)
 }
 
 func (bc *BinaryCoder) isSymbolDecoded(index int) bool {
-	if index < 0 || index >= bc.numSymbols {
+	if index < 0 || index >= bc.NumSymbols {
 		return false
 	}
 	return bc.symbolDecoded[index]
@@ -55,13 +55,13 @@ func (bc *BinaryCoder) isSymbolDecoded(index int) bool {
 
 func (bc *BinaryCoder) getDecodedSymbol(index int) []int {
 	if bc.isSymbolDecoded(index) {
-		return bc.packetVector[index]
+		return bc.PacketVector[index]
 	}
 
 	return nil
 }
 
-func (bc *BinaryCoder) getNumDecoded() int {
+func (bc *BinaryCoder) GetNumDecoded() int {
 	sum := 0
 
 	for s := range bc.symbolDecoded {
@@ -73,7 +73,7 @@ func (bc *BinaryCoder) getNumDecoded() int {
 	return sum
 }
 
-func (bc *BinaryCoder) isFullyDecoded() bool {
+func (bc *BinaryCoder) IsFullyDecoded() bool {
 	for _, decoded := range bc.symbolDecoded {
 		if !decoded {
 			return false
@@ -86,11 +86,11 @@ func (bc *BinaryCoder) rank() int {
 	return bc.numIndependent
 }
 
-func (bc *BinaryCoder) consumePacket(coefficients []int, packet []int) {
-	if !bc.isFullyDecoded() {
+func (bc *BinaryCoder) ConsumePacket(coefficients []int, packet []int) {
+	if !bc.IsFullyDecoded() {
 		copy(bc.coefficientMatrix[bc.numIndependent], coefficients)
 
-		bc.packetVector[bc.numIndependent] = packet
+		bc.PacketVector[bc.numIndependent] = packet
 
 		var extendedRref [][]int
 
@@ -98,42 +98,42 @@ func (bc *BinaryCoder) consumePacket(coefficients []int, packet []int) {
 
 		transformation := make([][]int, len(extendedRref))
 		for i, row := range extendedRref {
-			transformation[i] = make([]int, bc.numSymbols)
-			copy(transformation[i], row[bc.numSymbols:2*bc.numSymbols])
+			transformation[i] = make([]int, bc.NumSymbols)
+			copy(transformation[i], row[bc.NumSymbols:2*bc.NumSymbols])
 		}
 
-		bc.packetVector = binMatDot(transformation, bc.packetVector)
+		bc.PacketVector = binMatDot(transformation, bc.PacketVector)
 
 		rref := make([][]int, len(extendedRref))
 		for i, row := range extendedRref {
-			rref[i] = make([]int, bc.numSymbols)
-			copy(rref[i], row[:bc.numSymbols])
+			rref[i] = make([]int, bc.NumSymbols)
+			copy(rref[i], row[:bc.NumSymbols])
 		}
 
-		bc.coefficientMatrix = make([][]int, bc.numSymbols)
-		for k := 0; k < bc.numSymbols; k++ {
+		bc.coefficientMatrix = make([][]int, bc.NumSymbols)
+		for k := 0; k < bc.NumSymbols; k++ {
 			bc.coefficientMatrix[k] = append(rref[k], bc.id[k]...)
 		}
 	}
 }
 
 func (bc *BinaryCoder) getSysCodedPacket(index int) ([]int, []int) {
-	if index < 0 || index >= bc.numSymbols {
+	if index < 0 || index >= bc.NumSymbols {
 		return nil, nil
 	}
 
 	if bc.isSymbolDecoded(index) {
-		coefficients := make([]int, bc.numSymbols)
+		coefficients := make([]int, bc.NumSymbols)
 		coefficients[index] = 1
-		return coefficients, bc.packetVector[index]
+		return coefficients, bc.PacketVector[index]
 	}
 
 	return nil, nil
 }
 
-func (bc *BinaryCoder) getNewCodedPacket() ([]int, []int) {
-	coefficients := make([]int, bc.numSymbols)
-	packet := make([]int, bc.numBitPacket)
+func (bc *BinaryCoder) GetNewCodedPacket() ([]int, []int) {
+	coefficients := make([]int, bc.NumSymbols)
+	packet := make([]int, bc.NumBitPacket)
 
 	var randomDecisions []int
 
@@ -144,7 +144,7 @@ func (bc *BinaryCoder) getNewCodedPacket() ([]int, []int) {
 			randomDecisions[i] = bc.rng.Intn(bc.numIndependent)
 		}
 
-		coefficients = make([]int, bc.numSymbols)
+		coefficients = make([]int, bc.NumSymbols)
 		for i := range coefficients {
 			for _, selected := range randomDecisions {
 				coefficients[i] ^= bc.coefficientMatrix[selected][i]
@@ -154,7 +154,7 @@ func (bc *BinaryCoder) getNewCodedPacket() ([]int, []int) {
 
 	for i := range packet {
 		for _, selected := range randomDecisions {
-			packet[i] ^= bc.packetVector[selected][i]
+			packet[i] ^= bc.PacketVector[selected][i]
 		}
 	}
 

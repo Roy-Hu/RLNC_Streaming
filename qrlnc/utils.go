@@ -1,5 +1,10 @@
 package qrlnc
 
+import (
+	"crypto/tls"
+	"fmt"
+)
+
 // binMatRref performs the Row Reduction to Echelon Form on a binary matrix
 func binMatRref(A *[][]int) ([][]int, int, []bool) {
 	B := [][]int{}
@@ -124,4 +129,16 @@ func rowSum(slice []int) int {
 		total += val
 	}
 	return total
+}
+
+func GenerateTLSConfig() *tls.Config {
+	cert, err := tls.LoadX509KeyPair("../godash/http/certs/cert.pem", "../godash/http/certs/key.pem")
+	if err != nil {
+		fmt.Printf("TLS config err: %v", err)
+
+		return nil
+	}
+	return &tls.Config{
+		Certificates: []tls.Certificate{cert},
+	}
 }
