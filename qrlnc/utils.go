@@ -3,6 +3,7 @@ package qrlnc
 import (
 	"crypto/tls"
 	"fmt"
+	"sync"
 )
 
 // binMatRref performs the Row Reduction to Echelon Form on a binary matrix
@@ -94,21 +95,29 @@ func binMatRref(A *[][]byte) ([][]byte, int, []bool) {
 
 // binMatDot performs dot product of two binary matrices
 func binMatDot(K [][]byte, L [][]int) [][]int {
-	result := make([][]int, len(K))
-	// numCols := len(K[0])
+	numRows := len(K)
 	numBits := len(L[0])
+	result := make([][]int, numRows)
+
+	var wg sync.WaitGroup
+	wg.Add(numRows) // Set the number of goroutines to wait for
 
 	for row := range K {
-		rowSolution := make([]int, numBits)
-		for k := range K[row] {
-			if K[row][k] != 0 {
-				for j := range L[k] {
-					rowSolution[j] = (rowSolution[j] + int(K[row][k])*L[k][j]) % 2
+		go func(row int) {
+			defer wg.Done() // Signal that this goroutine is done
+			rowSolution := make([]int, numBits)
+			for k := range K[row] {
+				if K[row][k] != 0 {
+					for j := range L[k] {
+						rowSolution[j] = (rowSolution[j] + int(K[row][k])*L[k][j]) % 2
+					}
 				}
 			}
-		}
-		result[row] = rowSolution
+			result[row] = rowSolution
+		}(row)
 	}
+
+	wg.Wait() // Wait for all goroutines to finish
 	return result
 }
 
