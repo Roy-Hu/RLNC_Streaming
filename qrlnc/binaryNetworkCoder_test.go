@@ -10,8 +10,8 @@ import (
 
 func TestBinaryCoder(t *testing.T) {
 	// Parameters
-	NumSymbols := 4
-	NumBitPacket := 5
+	NumSymbols := 500
+	NumBitPacket := PktNumBit
 	RngSeed := int64(1)
 
 	// Initialization
@@ -27,7 +27,7 @@ func TestBinaryCoder(t *testing.T) {
 		for i := range packet {
 			packet[i] = int((randomBits >> (uint(encoder.NumBitPacket) - 1 - uint(i))) & 1)
 		}
-		coefficients := make([]int, encoder.NumSymbols)
+		coefficients := make([]byte, encoder.NumSymbols)
 		coefficients[packetID] = 1
 		encoder.ConsumePacket(coefficients, packet)
 	}

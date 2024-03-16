@@ -2,18 +2,44 @@ package qrlnc
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/gob"
+	"errors"
 )
 
 // 8192 bits = 1024 bytes
-var PktNumBit int = 1024
+var PktNumBit int = 2048
 var RngSeed int64 = int64(1)
 
 type XNC struct {
-	BitSize     int
+	FileSize    int
 	NumSymbols  int
-	Coefficient []int
+	Coefficient []uint64
 	Packet      []int
+}
+
+func bytesToUint64s(bytes []byte) []uint64 {
+	// Pad the byte slice with zeros to ensure its length is a multiple of 8.
+	for len(bytes)%8 != 0 {
+		bytes = append(bytes, 0)
+	}
+
+	uint64s := make([]uint64, len(bytes)/8)
+	for i := 0; i < len(uint64s); i++ {
+		uint64s[i] = binary.BigEndian.Uint64(bytes[i*8 : (i+1)*8])
+	}
+
+	return uint64s
+}
+
+func uint64sToBytes(uint64s []uint64, originalLength int) []byte {
+	bytes := make([]byte, len(uint64s)*8)
+	for i, val := range uint64s {
+		binary.BigEndian.PutUint64(bytes[i*8:], val)
+	}
+
+	// Return the slice up to the original length, removing padding.
+	return bytes[:originalLength]
 }
 
 func EncodePacketDataToByte(data XNC) ([]byte, error) {
@@ -25,12 +51,15 @@ func EncodePacketDataToByte(data XNC) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func DecodePacketDataToByte(data []byte) (XNC, error) {
+func DecodeByteToPacketData(data []byte) (XNC, error) {
 	buf := bytes.NewBuffer(data)
 	decoder := gob.NewDecoder(buf)
 	var decodedData XNC
 	if err := decoder.Decode(&decodedData); err != nil {
 		return XNC{}, err
+	}
+	if buf.Len() > 0 {
+		return XNC{}, errors.New("data contains more bytes than expected")
 	}
 	return decodedData, nil
 }
@@ -67,9 +96,9 @@ func BytesToPackets(byteData []byte, NumBitPacket int) [][]int {
 	return packets
 }
 
-func PacketsToBytes(packets [][]int, NumBitPacket int, originalBitSize int) []byte {
-	totalBytes := originalBitSize / 8
-	if originalBitSize%8 != 0 {
+func PacketsToBytes(packets [][]int, NumBitPacket int, originalPacketSize int) []byte {
+	totalBytes := originalPacketSize / 8
+	if originalPacketSize%8 != 0 {
 		totalBytes++ // Account for leftover bits
 	}
 
@@ -78,7 +107,7 @@ func PacketsToBytes(packets [][]int, NumBitPacket int, originalBitSize int) []by
 
 	for _, packet := range packets {
 		for _, bit := range packet {
-			if bitIndex >= originalBitSize {
+			if bitIndex >= originalPacketSize {
 				break // Stop processing once all original bits are processed
 			}
 			byteIndex := bitIndex / 8

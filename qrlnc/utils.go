@@ -6,8 +6,8 @@ import (
 )
 
 // binMatRref performs the Row Reduction to Echelon Form on a binary matrix
-func binMatRref(A *[][]int) ([][]int, int, []bool) {
-	B := [][]int{}
+func binMatRref(A *[][]byte) ([][]byte, int, []bool) {
+	B := [][]byte{}
 	n := len((*A)[0])
 
 	// Forward sweep
@@ -61,7 +61,7 @@ func binMatRref(A *[][]int) ([][]int, int, []bool) {
 	}
 
 	symbolCutoff := len(B[0]) / 2
-	rowSums := make([]int, len(B))
+	rowSums := make([]byte, len(B))
 	for i, row := range B {
 		for _, val := range row[:symbolCutoff] {
 			rowSums[i] += val
@@ -93,7 +93,7 @@ func binMatRref(A *[][]int) ([][]int, int, []bool) {
 }
 
 // binMatDot performs dot product of two binary matrices
-func binMatDot(K, L [][]int) [][]int {
+func binMatDot(K [][]byte, L [][]int) [][]int {
 	result := make([][]int, len(K))
 	// numCols := len(K[0])
 	numBits := len(L[0])
@@ -103,7 +103,7 @@ func binMatDot(K, L [][]int) [][]int {
 		for k := range K[row] {
 			if K[row][k] != 0 {
 				for j := range L[k] {
-					rowSolution[j] = (rowSolution[j] + K[row][k]*L[k][j]) % 2
+					rowSolution[j] = (rowSolution[j] + int(K[row][k])*L[k][j]) % 2
 				}
 			}
 		}
@@ -113,20 +113,20 @@ func binMatDot(K, L [][]int) [][]int {
 }
 
 // identity generates an identity matrix of size n
-func identity(n int) [][]int {
-	id := make([][]int, n)
+func identity(n int) [][]byte {
+	id := make([][]byte, n)
 	for i := range id {
-		id[i] = make([]int, n)
+		id[i] = make([]byte, n)
 		id[i][i] = 1
 	}
 	return id
 }
 
 // Helper function to sum a slice of integers
-func rowSum(slice []int) int {
+func rowSum(slice []byte) int {
 	total := 0
 	for _, val := range slice {
-		total += val
+		total += int(val)
 	}
 	return total
 }

@@ -1,6 +1,7 @@
 package qrlnc
 
 import (
+	"fmt"
 	"math/rand"
 )
 
@@ -10,8 +11,8 @@ type BinaryCoder struct {
 	rng               *rand.Rand
 	numIndependent    int
 	symbolDecoded     []bool
-	id                [][]int
-	coefficientMatrix [][]int
+	id                [][]byte
+	coefficientMatrix [][]byte
 	PacketVector      [][]int
 }
 
@@ -24,7 +25,7 @@ func InitBinaryCoder(NumSymbols int, packetSize int, RngSeed int64) *BinaryCoder
 		numIndependent:    0,
 		symbolDecoded:     make([]bool, NumSymbols),
 		id:                identity(NumSymbols),
-		coefficientMatrix: make([][]int, NumSymbols),
+		coefficientMatrix: make([][]byte, NumSymbols),
 		PacketVector:      make([][]int, NumSymbols),
 	}
 	bc.reset()
@@ -38,7 +39,7 @@ func (bc *BinaryCoder) reset() {
 
 	// python: self.coefficient_matrix = [ [0] * self.num_symbols + self.id[k] for k in range(self.num_symbols)] # save current rref to reduce computational load in the future
 	for k := 0; k < bc.NumSymbols; k++ {
-		bc.coefficientMatrix[k] = make([]int, 2*bc.NumSymbols)
+		bc.coefficientMatrix[k] = make([]byte, 2*bc.NumSymbols)
 		for j := 0; j < bc.NumSymbols; j++ {
 			bc.coefficientMatrix[k][bc.NumSymbols+j] = bc.id[k][j]
 		}
@@ -86,31 +87,31 @@ func (bc *BinaryCoder) rank() int {
 	return bc.numIndependent
 }
 
-func (bc *BinaryCoder) ConsumePacket(coefficients []int, packet []int) {
+func (bc *BinaryCoder) ConsumePacket(coefficients []byte, packet []int) {
 	if !bc.IsFullyDecoded() {
 		copy(bc.coefficientMatrix[bc.numIndependent], coefficients)
 
 		bc.PacketVector[bc.numIndependent] = packet
 
-		var extendedRref [][]int
+		var extendedRref [][]byte
 
 		extendedRref, bc.numIndependent, bc.symbolDecoded = binMatRref(&bc.coefficientMatrix)
 
-		transformation := make([][]int, len(extendedRref))
+		transformation := make([][]byte, len(extendedRref))
 		for i, row := range extendedRref {
-			transformation[i] = make([]int, bc.NumSymbols)
+			transformation[i] = make([]byte, bc.NumSymbols)
 			copy(transformation[i], row[bc.NumSymbols:2*bc.NumSymbols])
 		}
 
 		bc.PacketVector = binMatDot(transformation, bc.PacketVector)
 
-		rref := make([][]int, len(extendedRref))
+		rref := make([][]byte, len(extendedRref))
 		for i, row := range extendedRref {
-			rref[i] = make([]int, bc.NumSymbols)
+			rref[i] = make([]byte, bc.NumSymbols)
 			copy(rref[i], row[:bc.NumSymbols])
 		}
 
-		bc.coefficientMatrix = make([][]int, bc.NumSymbols)
+		bc.coefficientMatrix = make([][]byte, bc.NumSymbols)
 		for k := 0; k < bc.NumSymbols; k++ {
 			bc.coefficientMatrix[k] = append(rref[k], bc.id[k]...)
 		}
@@ -131,8 +132,8 @@ func (bc *BinaryCoder) getSysCodedPacket(index int) ([]int, []int) {
 	return nil, nil
 }
 
-func (bc *BinaryCoder) GetNewCodedPacket() ([]int, []int) {
-	coefficients := make([]int, bc.NumSymbols)
+func (bc *BinaryCoder) GetNewCodedPacket() ([]byte, []int) {
+	coefficients := make([]byte, bc.NumSymbols)
 	packet := make([]int, bc.NumBitPacket)
 
 	var randomDecisions []int
@@ -144,7 +145,7 @@ func (bc *BinaryCoder) GetNewCodedPacket() ([]int, []int) {
 			randomDecisions[i] = bc.rng.Intn(bc.numIndependent)
 		}
 
-		coefficients = make([]int, bc.NumSymbols)
+		coefficients = make([]byte, bc.NumSymbols)
 		for i := range coefficients {
 			for _, selected := range randomDecisions {
 				coefficients[i] ^= bc.coefficientMatrix[selected][i]
@@ -159,4 +160,25 @@ func (bc *BinaryCoder) GetNewCodedPacket() ([]int, []int) {
 	}
 
 	return coefficients, packet
+}
+
+func (bc *BinaryCoder) GetNewCodedPacketByte(fileSize int) ([]byte, error) {
+	coefficient, packet := bc.GetNewCodedPacket()
+
+	coef := bytesToUint64s(coefficient)
+	xncPkt := XNC{
+		FileSize:    fileSize,
+		NumSymbols:  bc.NumSymbols,
+		Coefficient: coef,
+		Packet:      packet,
+	}
+
+	encodedPkt, err := EncodePacketDataToByte(xncPkt)
+
+	if err != nil {
+		fmt.Println("Error encoding packet data:", err)
+		return nil, err
+	}
+
+	return encodedPkt, nil
 }
