@@ -18,8 +18,8 @@ type BinaryCoder struct {
 	PacketVector      [][]byte
 }
 
-func InitBinaryCoder(NumSymbols int, packetSize int, RngSeed int64) *BinaryCoder {
-	rng := rand.New(rand.NewSource(RngSeed))
+func InitBinaryCoder(NumSymbols int, packetSize int, RNGSEED int64) *BinaryCoder {
+	rng := rand.New(rand.NewSource(RNGSEED))
 	bc := &BinaryCoder{
 		NumSymbols:        NumSymbols,
 		NumBitPacket:      packetSize,
@@ -166,24 +166,29 @@ func (bc *BinaryCoder) GetNewCodedPacket() ([]byte, []byte) {
 
 func (bc *BinaryCoder) GetNewCodedPacketByte(fileSize int, chunkId int) ([]byte, error) {
 	coefficient, packet := bc.GetNewCodedPacket()
+	coefu64, origLenCoef := PackBinaryBytesToUint64s(coefficient)
+	pktu64, origLenPkt := PackBinaryBytesToUint64s(packet)
 
-	pkt, _ := BytesToUint64s(packet)
-	coef, _ := BytesToUint64s(coefficient)
-
-	xncPkt := XNC{
-		ChunkId:     chunkId,
-		FileSize:    fileSize,
-		NumSymbols:  bc.NumSymbols,
-		Coefficient: coef,
-		Packet:      pkt,
+	if (origLenCoef != bc.NumSymbols) || (origLenPkt != bc.NumBitPacket) {
+		return nil, fmt.Errorf("Error encoding packet data: invalid length")
 	}
 
-	encodedPkt, err := EncodeXNCToByte(xncPkt)
+	xnc := XNC{
+		ChunkId:     chunkId,
+		Coefficient: coefu64,
+		Packet:      pktu64,
+	}
+
+	pkt, err := EncodeXNCToByte(xnc)
+	if err != nil {
+		fmt.Errorf("Error encoding packet data: %v", err)
+		return nil, err
+	}
 
 	if err != nil {
 		fmt.Println("Error encoding packet data:", err)
 		return nil, err
 	}
 
-	return encodedPkt, nil
+	return pkt, nil
 }

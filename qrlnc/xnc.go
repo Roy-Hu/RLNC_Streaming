@@ -2,18 +2,25 @@ package qrlnc
 
 import (
 	"bytes"
-	"encoding/binary"
 	"encoding/gob"
 	"errors"
 	"fmt"
 )
 
 // 8192 bits = 1024 bytes
-var PktNumBit int = 2048
-var RngSeed int64 = int64(1)
+var PKTBITNUM int = 8192
+var RNGSEED int64 = int64(1)
 
 var INIT byte = 0x1
 var DATA byte = 0x2
+var TYPESIZE int = 1
+var IDSIZE int = 4
+var FILESIZESIZE int = 4
+
+var CHUNKSIZE int = 1 << 17
+var SYMBOLNUM int = (CHUNKSIZE * 8) / PKTBITNUM
+var COEFNUM int = SYMBOLNUM / 64
+var FRAMESIZE int = TYPESIZE + IDSIZE + FILESIZESIZE + COEFNUM*8 + PKTBITNUM/8
 
 // Init Pkt
 // Type + ChunkId + FileSize + NumSymbols
@@ -50,33 +57,75 @@ type XNC struct {
 	Type        byte
 	ChunkId     int
 	FileSize    int
-	NumSymbols  int
 	Coefficient []uint64
 	Packet      []uint64
 }
 
-func BytesToUint64s(bytes []byte) ([]uint64, int) {
-	// Pad the byte slice with zeros to ensure its length is a multiple of 8.
-	for len(bytes)%8 != 0 {
-		bytes = append(bytes, 0)
+// packBinaryBytesToUint64s takes a slice of bytes, where each byte is expected to be 0x00 or 0x01,
+// and packs these into a slice of uint64 values, with each bit in the uint64 representing a byte from the input.
+func PackBinaryBytesToUint64s(binaryBytes []byte) ([]uint64, int) {
+	var result []uint64
+	var currentUint64 uint64
+	var bitPosition uint
+
+	for _, byteVal := range binaryBytes {
+		// Check if the byte is 0x01 and set the corresponding bit in currentUint64.
+		if byteVal == 0x01 {
+			currentUint64 |= 1 << bitPosition
+		}
+
+		bitPosition++
+
+		// If we've filled up a uint64 or reached the end of the input, append to result and reset for the next uint64.
+		if bitPosition == 64 {
+			result = append(result, currentUint64)
+			currentUint64 = 0
+			bitPosition = 0
+		}
 	}
 
-	uint64s := make([]uint64, len(bytes)/8)
-	for i := 0; i < len(uint64s); i++ {
-		uint64s[i] = binary.BigEndian.Uint64(bytes[i*8 : (i+1)*8])
+	// Handle any remaining bits that didn't fill up a final uint64.
+	if bitPosition > 0 {
+		result = append(result, currentUint64)
 	}
 
-	return uint64s, len(bytes)
+	return result, len(binaryBytes)
 }
 
-func Uint64sToBytes(uint64s []uint64, originalLength int) []byte {
-	bytes := make([]byte, len(uint64s)*8)
-	for i, val := range uint64s {
-		binary.BigEndian.PutUint64(bytes[i*8:], val)
+// unpackUint64sToBinaryBytes takes a slice of uint64 values and an original length of binary data,
+// and unpacks these into a slice of bytes, with each bit in the uint64 becoming a byte in the output,
+// either 0x00 or 0x01, stopping once the original length is reached.
+func UnpackUint64sToBinaryBytes(uint64s []uint64, originalLength int) []byte {
+	var result []byte
+	totalBits := 0 // Track the total number of bits unpacked.
+
+	for _, uint64Val := range uint64s {
+		for bitPosition := 0; bitPosition < 64; bitPosition++ {
+			if totalBits == originalLength {
+				// Stop unpacking if we've reached the original length.
+				break
+			}
+
+			// Extract the bit at bitPosition from uint64Val.
+			bit := (uint64Val >> bitPosition) & 1
+
+			// Convert the bit to a byte (0x00 for 0, 0x01 for 1) and append it to the result.
+			if bit == 1 {
+				result = append(result, 0x01)
+			} else {
+				result = append(result, 0x00)
+			}
+
+			totalBits++
+		}
+
+		if totalBits == originalLength {
+			// Stop unpacking if we've reached the original length.
+			break
+		}
 	}
 
-	// Return the slice up to the original length, removing padding.
-	return bytes[:originalLength]
+	return result
 }
 
 func EncodeXNCToByte(data XNC) ([]byte, error) {

@@ -11,14 +11,14 @@ import (
 func TestBinaryCoder(t *testing.T) {
 	// Parameters
 	NumSymbols := 100
-	NumBitPacket := PktNumBit
-	RngSeed := int64(1)
+	NumBitPacket := PKTBITNUM
+	RNGSEED := int64(1)
 
 	// Initialization
-	rand.Seed(RngSeed)
+	rand.Seed(RNGSEED)
 
-	encoder := InitBinaryCoder(NumSymbols, NumBitPacket, RngSeed)
-	decoder := InitBinaryCoder(NumSymbols, NumBitPacket, RngSeed)
+	encoder := InitBinaryCoder(NumSymbols, NumBitPacket, RNGSEED)
+	decoder := InitBinaryCoder(NumSymbols, NumBitPacket, RNGSEED)
 
 	packets := make([][]byte, NumSymbols)
 	// Initialize encoder with random bit packets

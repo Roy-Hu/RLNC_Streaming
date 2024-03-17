@@ -9,9 +9,23 @@ import (
 	"testing"
 )
 
+func TestNumSymbol(t *testing.T) {
+	chunk := 1 << 16 // 1MB
+	buf := make([]byte, chunk)
+	packets := BytesToPackets(buf, PKTBITNUM)
+
+	numSymbols := len(packets)
+
+	t.Logf("## Number of symbols: %d", numSymbols)
+}
+
 func TestWhole(t *testing.T) {
 	var decoder *BinaryCoder
 	var encoder *BinaryCoder
+
+	t.Log("## TestWhole")
+	t.Logf("SYMBOLNUM %d", SYMBOLNUM)
+	t.Logf("COEFNUM %d", COEFNUM)
 
 	file, err := os.Open("test.m4s")
 	if err != nil {
@@ -20,8 +34,6 @@ func TestWhole(t *testing.T) {
 	}
 	defer file.Close() // Ensure the file is closed after reading
 
-	chunk := 1 << 20 // 1MB
-
 	filebytes, err := io.ReadAll(file)
 	if err != nil {
 		t.Errorf("Error reading file: %v", err)
@@ -29,17 +41,21 @@ func TestWhole(t *testing.T) {
 	}
 	fmt.Printf("Read %d bytes from file\n", len(filebytes))
 
-	fmt.Printf("Chunk num %d\n", len(filebytes)/chunk)
+	fmt.Printf("Chunk num %d\n", len(filebytes)/CHUNKSIZE)
 
-	// for i := 0; i < len(bytes); i += chunk {
-	end := min(0+chunk, len(filebytes))
+	// for i := 0; i < len(bytes); i += CHUNKSIZE {
+	filesize := len(filebytes)
+
+	end := min(0+CHUNKSIZE, len(filebytes))
 	chunkBytes := filebytes[0:end]
+	// // padding chunkbytes to chunk size
+	if len(chunkBytes) < CHUNKSIZE {
+		chunkBytes = append(chunkBytes, make([]byte, CHUNKSIZE-len(chunkBytes))...)
+	}
 
-	packets := BytesToPackets(chunkBytes, PktNumBit)
+	packets := BytesToPackets(chunkBytes, PKTBITNUM)
 
-	NumSymbols := len(packets)
-
-	encoder = InitBinaryCoder(NumSymbols, PktNumBit, RngSeed)
+	encoder = InitBinaryCoder(len(packets), PKTBITNUM, RNGSEED)
 
 	fmt.Println("Number of symbols:", encoder.NumSymbols)
 	fmt.Println("Number of bit per packet:", encoder.NumBitPacket)
@@ -55,13 +71,17 @@ func TestWhole(t *testing.T) {
 
 	for {
 		coefficientE, packet := encoder.GetNewCodedPacket()
-		coefEu64, origLenCoef := BytesToUint64s(coefficientE)
-		pktEu64, origLenPkt := BytesToUint64s(packet)
+		coefEu64, origLenCoef := PackBinaryBytesToUint64s(coefficientE)
+		pktEu64, origLenPkt := PackBinaryBytesToUint64s(packet)
+
+		if (len(coefEu64) != COEFNUM) || (origLenCoef != SYMBOLNUM) || (origLenPkt != PKTBITNUM) {
+			t.Errorf("Error encoding packet data: invalid length")
+			return
+		}
 
 		xncE := XNC{
 			ChunkId:     0,
-			FileSize:    len(chunkBytes),
-			NumSymbols:  encoder.NumSymbols,
+			FileSize:    filesize,
 			Coefficient: coefEu64,
 			Packet:      pktEu64,
 		}
@@ -86,12 +106,11 @@ func TestWhole(t *testing.T) {
 		}
 
 		if decoder == nil {
-			// Assuming InitBinaryCoder, PktNumBit, and RngSeed are correctly defined elsewhere.
-			decoder = InitBinaryCoder(xncD.NumSymbols, PktNumBit, 1)
+			decoder = InitBinaryCoder(SYMBOLNUM, PKTBITNUM, 1)
 		}
 
-		coefficientD := Uint64sToBytes(xncD.Coefficient, origLenCoef)
-		pktD := Uint64sToBytes(xncD.Packet, origLenPkt)
+		coefficientD := UnpackUint64sToBinaryBytes(xncD.Coefficient, SYMBOLNUM)
+		pktD := UnpackUint64sToBinaryBytes(xncD.Packet, PKTBITNUM)
 
 		if !bytes.Equal(coefficientE, coefficientD) {
 			t.Errorf("Failed to decode coefficients correctly.\nExpected: %x\nGot: %x", coefficientE, coefficientD)
@@ -114,14 +133,15 @@ func TestWhole(t *testing.T) {
 				return
 			}
 
-			file := PacketsToBytes(decoder.PacketVector, PktNumBit, len(chunkBytes)*8)
+			recvfile := PacketsToBytes(decoder.PacketVector, decoder.NumBitPacket, len(chunkBytes)*8)
+			recvfile = recvfile[:xncD.FileSize]
 
-			if !bytes.Equal(file, chunkBytes) {
-				t.Errorf("## Files and chunkBytes do not match.")
+			if !bytes.Equal(recvfile, filebytes) {
+				t.Errorf("## recvfile and filebytes do not match.")
 				return
 			}
 
-			if err := os.WriteFile("recv.m4s", file, 0644); err != nil {
+			if err := os.WriteFile("recv.m4s", recvfile, 0644); err != nil {
 				t.Errorf("Failed to save file: %v\n", err)
 				return
 			}
@@ -153,20 +173,30 @@ func TestWhole(t *testing.T) {
 	}
 }
 
-func TestConversion(t *testing.T) {
+func TesTBinaryBtyeToUint64(t *testing.T) {
 	// Initialize a test case with a slice of bytes.
 	// Ensure the length is a multiple of 8 for straightforward testing.
-	originalBytes := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D}
+	const length = 210 // Specify the desired length here.
+	originalBinaryBytes := make([]byte, length)
+
+	// Fill the slice with a simple pattern of 0x01 and 0x00 alternately.
+	for i := 0; i < length; i++ {
+		if i%2 == 0 || i%5 == 0 {
+			originalBinaryBytes[i] = 0x01
+		} else {
+			originalBinaryBytes[i] = 0x00
+		}
+	}
 
 	// Convert the bytes to uint64s
-	uint64s, origLen := BytesToUint64s(originalBytes)
+	uint64s, origLen := PackBinaryBytesToUint64s(originalBinaryBytes)
 
 	// Convert back to bytes
-	convertedBytes := Uint64sToBytes(uint64s, origLen)
+	convertedBytes := UnpackUint64sToBinaryBytes(uint64s, origLen)
 
 	// Compare the original byte slice with the converted byte slice
-	if !bytes.Equal(originalBytes, convertedBytes) {
-		t.Errorf("Conversion failed. Original: %x, Converted: %x", originalBytes, convertedBytes)
+	if !bytes.Equal(originalBinaryBytes, convertedBytes) {
+		t.Errorf("Conversion failed. Original: %x, Converted: %x", originalBinaryBytes, convertedBytes)
 	}
 }
 
@@ -185,8 +215,8 @@ func TestPacketToByte(t *testing.T) {
 	}
 
 	fmt.Printf("Read %d bytes from file\n", len(byts))
-	encode := BytesToPackets(byts, PktNumBit)
-	decode := PacketsToBytes(encode, PktNumBit, len(byts)*8)
+	encode := BytesToPackets(byts, PKTBITNUM)
+	decode := PacketsToBytes(encode, PKTBITNUM, len(byts)*8)
 
 	if bytes.Equal(decode, byts) {
 		t.Logf("## Successfully decoded all packets at the receiver after messages.")
@@ -221,7 +251,6 @@ func TestXNCToByte(t *testing.T) {
 	xnc := XNC{
 		ChunkId:     1,
 		Type:        byte(3),
-		NumSymbols:  10,
 		FileSize:    4,
 		Coefficient: []uint64{1, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 		Packet:      []uint64{135431, 51908357, 1324951, 1587324, 1587324, 1587324, 1587324, 1587324, 1587324, 1587324},
@@ -251,13 +280,10 @@ func XNCEqual(a, b XNC) bool {
 	if a.Type != b.Type {
 		return false
 	}
-	if a.NumSymbols != b.NumSymbols {
-		return false
-	}
 	if a.FileSize != b.FileSize {
 		return false
 	}
-	if !bytes.Equal(Uint64sToBytes(a.Coefficient, len(a.Coefficient)), Uint64sToBytes(b.Coefficient, len(b.Coefficient))) {
+	if !bytes.Equal(UnpackUint64sToBinaryBytes(a.Coefficient, len(a.Coefficient)), UnpackUint64sToBinaryBytes(b.Coefficient, len(b.Coefficient))) {
 		return false
 	}
 
