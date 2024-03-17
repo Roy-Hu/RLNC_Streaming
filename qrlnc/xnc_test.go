@@ -9,16 +9,6 @@ import (
 	"testing"
 )
 
-func TestNumSymbol(t *testing.T) {
-	chunk := 1 << 16 // 1MB
-	buf := make([]byte, chunk)
-	packets := BytesToPackets(buf, PKTBITNUM)
-
-	numSymbols := len(packets)
-
-	t.Logf("## Number of symbols: %d", numSymbols)
-}
-
 func TestWhole(t *testing.T) {
 	var decoder *BinaryCoder
 	var encoder *BinaryCoder
@@ -78,7 +68,7 @@ func TestWhole(t *testing.T) {
 			t.Errorf("Error encoding packet data: invalid length")
 			return
 		}
-
+		t.Logf("Pkt bit num %d, pky u64 len %d", PKTBITNUM, len(pktEu64))
 		xncE := XNC{
 			ChunkId:     0,
 			FileSize:    filesize,
@@ -86,13 +76,13 @@ func TestWhole(t *testing.T) {
 			Packet:      pktEu64,
 		}
 
-		pktE, err := EncodeXNCToByte(xncE)
+		pktE, err := EncodeXNCPkt(xncE)
 		if err != nil {
 			t.Errorf("Error encoding packet data: %v", err)
 			return
 		}
 
-		xncD, err := DecodeByteToXNC(pktE)
+		xncD, err := DecodeXNCPkt(pktE)
 
 		if !XNCEqual(xncE, xncD) {
 			t.Errorf("Failed to decode xnc correctly.\nExpected: %v\nGot: %v", xncE, xncD)
@@ -171,6 +161,39 @@ func TestWhole(t *testing.T) {
 	} else {
 		t.Logf("## Successfully decoded all packets at the receiver.")
 	}
+}
+
+func TestEncodeXNCPkt(t *testing.T) {
+	xnc := XNC{
+		ChunkId:     1,
+		Type:        byte(TYPE_XNC),
+		FileSize:    4,
+		Coefficient: []uint64{1342493851, 1238124},
+		Packet:      make([]uint64, PKTNUM),
+	}
+
+	for i := range xnc.Packet {
+		xnc.Packet[i] = uint64(i)
+	}
+
+	encode, err := EncodeXNCPkt(xnc)
+	if err != nil {
+		t.Errorf("Failed to encode xnc correctly.")
+		return
+	}
+
+	decode, err := DecodeXNCPkt(encode)
+	if err != nil {
+		t.Errorf("Failed to encode xnc correctly.")
+		return
+	}
+
+	if !XNCEqual(xnc, decode) {
+		t.Errorf("Failed to decode xnc correctly.\nExpected: %v\nGot: %v", xnc, decode)
+		return
+	}
+
+	t.Logf("## Successfully decoded XNC packets\n")
 }
 
 func TesTBinaryBtyeToUint64(t *testing.T) {
@@ -256,12 +279,12 @@ func TestXNCToByte(t *testing.T) {
 		Packet:      []uint64{135431, 51908357, 1324951, 1587324, 1587324, 1587324, 1587324, 1587324, 1587324, 1587324},
 	}
 
-	encode, err := EncodeXNCToByte(xnc)
+	encode, err := EncodeXNCPkt(xnc)
 	if err != nil {
 		fmt.Println("Error encode xnc:", err)
 		return
 	}
-	decode, err := DecodeByteToXNC(encode)
+	decode, err := DecodeXNCPkt(encode)
 	if err != nil {
 		fmt.Println("Error decode xnc:", err)
 		return

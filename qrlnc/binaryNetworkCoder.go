@@ -179,7 +179,7 @@ func (bc *BinaryCoder) GetNewCodedPacketByte(fileSize int, chunkId int) ([]byte,
 		Packet:      pktu64,
 	}
 
-	pkt, err := EncodeXNCToByte(xnc)
+	pkt, err := EncodeXNCPkt(xnc)
 	if err != nil {
 		fmt.Errorf("Error encoding packet data: %v", err)
 		return nil, err
