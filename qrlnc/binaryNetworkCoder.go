@@ -6,6 +6,8 @@ import (
 )
 
 type BinaryCoder struct {
+	CoderId           int
+	FileSize          int
 	NumSymbols        int
 	NumBitPacket      int
 	rng               *rand.Rand
@@ -162,11 +164,12 @@ func (bc *BinaryCoder) GetNewCodedPacket() ([]byte, []int) {
 	return coefficients, packet
 }
 
-func (bc *BinaryCoder) GetNewCodedPacketByte(fileSize int) ([]byte, error) {
+func (bc *BinaryCoder) GetNewCodedPacketByte(fileSize int, chunkId int) ([]byte, error) {
 	coefficient, packet := bc.GetNewCodedPacket()
 
 	coef := bytesToUint64s(coefficient)
 	xncPkt := XNC{
+		// ChunkId:     chunkId,
 		FileSize:    fileSize,
 		NumSymbols:  bc.NumSymbols,
 		Coefficient: coef,

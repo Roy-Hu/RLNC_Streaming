@@ -11,7 +11,43 @@ import (
 var PktNumBit int = 2048
 var RngSeed int64 = int64(1)
 
+var INIT byte = 0x1
+var DATA byte = 0x2
+
+// Init Pkt
+// Type + ChunkId + FileSize + NumSymbols
+// DATA pkt
+// Type + ChunkId + Packet
+
+// func EncodeXNCPkt(data XNC) []byte {
+// 	pkt := []byte{}
+
+// 	pkt = append(pkt, data.Type)
+
+// 	if data.Type == INIT {
+// 		chunkId := make([]byte, 4)
+// 		binary.BigEndian.PutUint32(chunkId, uint32(data.ChunkId))
+// 		pkt = append(pkt, chunkId...)
+
+// 		filesize := make([]byte, 4)
+// 		binary.BigEndian.PutUint32(filesize, uint32(data.FileSize))
+// 		pkt = append(pkt, filesize...)
+
+// 		NumSymbols := make([]byte, 4)
+// 		binary.BigEndian.PutUint32(NumSymbols, uint32(data.NumSymbols))
+// 		pkt = append(pkt, NumSymbols...)
+// 	} else {
+// 		chunkId := make([]byte, 4)
+// 		binary.BigEndian.PutUint32(chunkId, uint32(data.ChunkId))
+// 		pkt = append(pkt, chunkId...)
+// 	}
+
+// 	return pkt
+// }
+
 type XNC struct {
+	Type        byte
+	ChunkId     int
 	FileSize    int
 	NumSymbols  int
 	Coefficient []uint64

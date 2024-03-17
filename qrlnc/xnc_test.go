@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"testing"
 	"time"
@@ -32,53 +33,34 @@ func TestConversion(t *testing.T) {
 
 func TestXNCEncodingDecoding(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel() // Ensure cancellation at the end of the test
+	defer cancel() // Ensures the server goroutine is terminated.
 
-	// Start the server in a goroutine
 	go server(ctx)
+	time.Sleep(1 * time.Second) // Wait for the server to initialize.
 
-	// Allow some time for the server to initialize
-	time.Sleep(1 * time.Second)
-
-	// Run the client to send the image
 	client("test.m4s")
+	t.Log("## Finished sending file")
 
-	// compare test.m4s and pic_recv.jpg
-	file, err := os.Open("test.m4s")
-	if err != nil {
-		fmt.Println("Error opening file:", err)
-		return
-	}
-	defer file.Close() // Ensure the file is closed after reading
+	// wait for the server to finish
+	time.Sleep(5 * time.Second)
 
-	byts, err := io.ReadAll(file)
+	original, err := ioutil.ReadFile("test.m4s")
 	if err != nil {
-		fmt.Println("Error reading file:", err)
-		return
+		t.Fatalf("Error opening original file: %v", err)
 	}
 
-	fileRecv, err := os.Open("recv.m4s")
+	received, err := ioutil.ReadFile("recv.m4s")
 	if err != nil {
-		fmt.Println("Error opening file:", err)
-		return
-	}
-	defer fileRecv.Close() // Ensure the file is closed after reading
-
-	bytsRecv, err := io.ReadAll(fileRecv)
-	if err != nil {
-		fmt.Println("Error reading file:", err)
-		return
+		t.Fatalf("Error opening received file: %v", err)
 	}
 
-	t.Logf("## Original file size: %d bytes", len(byts))
-	t.Logf("## Received file size: %d bytes", len(bytsRecv))
+	t.Logf("## Original file size: %d bytes", len(original))
+	t.Logf("## Received file size: %d bytes", len(received))
 
-	if bytes.Equal(byts, bytsRecv) {
-		t.Logf("## Successfully decoded all packets at the receiver after messages.")
+	if !bytes.Equal(original, received) {
+		t.Errorf("## Files do not match.\nExpected: %x\nGot: %x", original, received)
 	} else {
-		t.Errorf("## Failed to decode all packets at the receiver after messages.")
-		t.Errorf("## Expected: %x", byts)
-		t.Errorf("## Got: %x", bytsRecv)
+		t.Log("## Successfully decoded all packets at the receiver.")
 	}
 }
 
@@ -102,14 +84,22 @@ func client(filename string) {
 	}
 	defer file.Close() // Ensure the file is closed after reading
 
+	chunk := 1 << 15 // 1MB
+
 	bytes, err := io.ReadAll(file)
 	if err != nil {
 		fmt.Println("Error reading file:", err)
 		return
 	}
-
 	fmt.Printf("Read %d bytes from file\n", len(bytes))
-	packets := BytesToPackets(bytes, PktNumBit)
+
+	fmt.Printf("Chunk num %d\n", len(bytes)/chunk)
+
+	// for i := 0; i < len(bytes); i += chunk {
+	end := min(0+chunk, len(bytes))
+	chunkBytes := bytes[0:end]
+
+	packets := BytesToPackets(chunkBytes, PktNumBit)
 
 	NumSymbols := len(packets)
 
@@ -126,7 +116,7 @@ func client(filename string) {
 	}
 
 	for {
-		encodedPkt, err := encoder.GetNewCodedPacketByte(len(bytes))
+		encodedPkt, err := encoder.GetNewCodedPacketByte(len(chunkBytes), 0)
 		if err != nil {
 			fmt.Println("Error encoding packet data:", err)
 			return
@@ -145,20 +135,16 @@ func client(filename string) {
 				fmt.Println("Stream closed by server")
 				break // Exit reading loop gracefully
 			} else {
-				panic(err) // Panic or handle other errors differently
+				fmt.Errorf("Error reading from stream: %v", err)
+				continue
 			}
 		}
-
 		fmt.Printf("Received %v from server\n", string(buf))
-
-		if string(buf) == "END" {
-			fmt.Printf("Received END from server\n")
-		}
+		// }
 	}
 }
 
 func server(ctx context.Context) {
-
 	quicConf := &quic.Config{}
 	tlsConf := GenerateTLSConfig()
 	if tlsConf == nil {
@@ -183,45 +169,40 @@ func server(ctx context.Context) {
 				fmt.Println("Failed to accept session:", err)
 				return
 			}
+			defer sess.Close(nil)
+
 			go handleSession(sess)
 		}
 	}
 }
 
-func handleSession(sess quic.Session) {
+func revieveFile(stream quic.Stream) {
 	var first bool = true
 	recieved := 0
 	var decoder *BinaryCoder
 
-	stream, err := sess.AcceptStream()
-	if err != nil {
-		if err == io.EOF {
-			// Gracefully handle session closure.
-			fmt.Println("Session closed by client.")
-			return
-		}
-		fmt.Printf("Error accepting stream: %v\n", err)
-		return
-	}
-	fmt.Println("New stream accepted.")
-
+	// create a new buffer to store the incoming packets
 	for {
-		var data XNC
-
-		buffer := make([]byte, 4096) // A 4KB buffer
+		buffer := make([]byte, 8192) // A 4KB buffer
 		n, err := stream.Read(buffer)
 		if err != nil {
 			if err == io.EOF {
 				// EOF indicates the client closed the stream. All data has been received.
 				fmt.Println("Stream closed by client")
-				break // Exit the loop.
+				break
 			}
 			// Handle other errors that might occur during reading.
 			fmt.Println("Error reading from stream:", err)
-			return // or handle the error appropriately
+			continue // or handle the error appropriately
 		}
 
-		data, err = DecodeByteToPacketData(buffer[:n])
+		if _, err := stream.Write([]byte("ACK")); err != nil {
+			fmt.Printf("Error sending acknowledgment: %v\n", err)
+			// Decide on error handling strategy, possibly continue to the next stream.
+		}
+
+		data, err := DecodeByteToPacketData(buffer[:n])
+
 		if err != nil {
 			fmt.Println("Error decoding packet data:", err)
 			// Decide on error handling strategy, possibly continue to the next stream.
@@ -237,49 +218,54 @@ func handleSession(sess quic.Session) {
 		decoder.ConsumePacket(coef, data.Packet)
 
 		fmt.Printf("Received packets %v\n", recieved)
-
 		recieved++
-		// Send acknowledgment back to the client.
 
 		fmt.Printf("## Decode %d out of %d\n", decoder.GetNumDecoded(), decoder.NumSymbols)
 
 		if decoder.IsFullyDecoded() {
 			bitsize := data.FileSize * 8
-			img := PacketsToBytes(decoder.PacketVector, decoder.NumBitPacket, bitsize)
-			filename := fmt.Sprintf("pic_recv.jpg")
-			if err := os.WriteFile(filename, img, 0644); err != nil {
-				fmt.Printf("Failed to save image: %v\n", err)
+			file := PacketsToBytes(decoder.PacketVector, decoder.NumBitPacket, bitsize)
+			filename := fmt.Sprintf("recv.m4s")
+			if err := os.WriteFile(filename, file, 0644); err != nil {
+				fmt.Printf("Failed to save file: %v\n", err)
 				// Handle the error, such as notifying the client or logging.
 				continue // Or break, based on your error handling policy.
 			}
-
-			fmt.Printf("Image saved as %s\n", filename)
 
 			if _, err := stream.Write([]byte("END")); err != nil {
 				fmt.Printf("Error sending acknowledgment: %v\n", err)
 				// Decide on error handling strategy, possibly continue to the next stream.
 			}
 
-			// Reset or prepare for next image.
+			// Properly close the stream after the loop
+			if err := stream.Close(); err != nil {
+				fmt.Printf("Error closing stream: %v\n", err)
+			}
+
+			time.Sleep(1 * time.Second)
+
 			break
 		}
+	}
 
-		if _, err := stream.Write([]byte("ACK")); err != nil {
-			fmt.Printf("Error sending acknowledgment: %v\n", err)
-			// Decide on error handling strategy, possibly continue to the next stream.
+	fmt.Printf("## Finished receiving file\n")
+}
+
+func handleSession(sess quic.Session) {
+
+	stream, err := sess.AcceptStream()
+	if err != nil {
+		if err == io.EOF {
+			// Gracefully handle session closure.
+			fmt.Println("Session closed by client.")
+			return
 		}
+		fmt.Printf("Error accepting stream: %v\n", err)
+		return
 	}
+	fmt.Println("New stream accepted.")
 
-	// Properly close the stream after the loop
-	if err := stream.Close(); err != nil {
-		fmt.Printf("Error closing stream: %v\n", err)
-	}
-
-	time.Sleep(1 * time.Second)
-	// Close the session if no more streams will be accepted, depending on your application logic
-	if err := sess.Close(nil); err != nil {
-		fmt.Printf("Error closing session: %v\n", err)
-	}
+	revieveFile(stream)
 }
 
 func min(a, b int) int {
