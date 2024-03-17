@@ -174,6 +174,7 @@ func (bc *BinaryCoder) GetNewCodedPacketByte(fileSize int, chunkId int) ([]byte,
 	}
 
 	xnc := XNC{
+		Type:        TYPE_XNC,
 		ChunkId:     chunkId,
 		Coefficient: coefu64,
 		Packet:      pktu64,

@@ -140,6 +140,13 @@ func rowSum(slice []byte) int {
 	return total
 }
 
+func Min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func GenerateTLSConfig() *tls.Config {
 	cert, err := tls.LoadX509KeyPair("../godash/http/certs/cert.pem", "../godash/http/certs/key.pem")
 	if err != nil {
