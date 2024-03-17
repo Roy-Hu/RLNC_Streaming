@@ -94,10 +94,10 @@ func binMatRref(A *[][]byte) ([][]byte, int, []bool) {
 }
 
 // binMatDot performs dot product of two binary matrices
-func binMatDot(K [][]byte, L [][]int) [][]int {
+func binMatDot(K [][]byte, L [][]byte) [][]byte {
 	numRows := len(K)
 	numBits := len(L[0])
-	result := make([][]int, numRows)
+	result := make([][]byte, numRows)
 
 	var wg sync.WaitGroup
 	wg.Add(numRows) // Set the number of goroutines to wait for
@@ -105,11 +105,11 @@ func binMatDot(K [][]byte, L [][]int) [][]int {
 	for row := range K {
 		go func(row int) {
 			defer wg.Done() // Signal that this goroutine is done
-			rowSolution := make([]int, numBits)
+			rowSolution := make([]byte, numBits)
 			for k := range K[row] {
 				if K[row][k] != 0 {
 					for j := range L[k] {
-						rowSolution[j] = (rowSolution[j] + int(K[row][k])*L[k][j]) % 2
+						rowSolution[j] = (rowSolution[j] + K[row][k]*L[k][j]) & 1
 					}
 				}
 			}

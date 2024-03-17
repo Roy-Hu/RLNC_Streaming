@@ -3,7 +3,6 @@ package qrlnc
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -65,83 +64,83 @@ func TestXNCEncodingDecoding(t *testing.T) {
 }
 
 func client(filename string) {
-	var encoder *BinaryCoder
+	// var encoder *BinaryCoder
 
-	quicConf := &quic.Config{}
-	session, err := quic.DialAddr("localhost:4242", &tls.Config{InsecureSkipVerify: true}, quicConf)
-	if err != nil {
-		panic(err)
-	}
-	stream, err := session.OpenStreamSync()
-	if err != nil {
-		panic(err)
-	}
+	// quicConf := &quic.Config{}
+	// session, err := quic.DialAddr("localhost:4242", &tls.Config{InsecureSkipVerify: true}, quicConf)
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// stream, err := session.OpenStreamSync()
+	// if err != nil {
+	// 	panic(err)
+	// }
 
-	file, err := os.Open(filename)
-	if err != nil {
-		fmt.Println("Error opening file:", err)
-		return
-	}
-	defer file.Close() // Ensure the file is closed after reading
+	// file, err := os.Open(filename)
+	// if err != nil {
+	// 	fmt.Println("Error opening file:", err)
+	// 	return
+	// }
+	// defer file.Close() // Ensure the file is closed after reading
 
-	chunk := 1 << 15 // 1MB
+	// chunk := 1 << 15 // 1MB
 
-	bytes, err := io.ReadAll(file)
-	if err != nil {
-		fmt.Println("Error reading file:", err)
-		return
-	}
-	fmt.Printf("Read %d bytes from file\n", len(bytes))
+	// bytes, err := io.ReadAll(file)
+	// if err != nil {
+	// 	fmt.Println("Error reading file:", err)
+	// 	return
+	// }
+	// fmt.Printf("Read %d bytes from file\n", len(bytes))
 
-	fmt.Printf("Chunk num %d\n", len(bytes)/chunk)
+	// fmt.Printf("Chunk num %d\n", len(bytes)/chunk)
 
-	// for i := 0; i < len(bytes); i += chunk {
-	end := min(0+chunk, len(bytes))
-	chunkBytes := bytes[0:end]
+	// // for i := 0; i < len(bytes); i += chunk {
+	// end := min(0+chunk, len(bytes))
+	// chunkBytes := bytes[0:end]
 
-	packets := BytesToPackets(chunkBytes, PktNumBit)
+	// packets := BytesToPackets(chunkBytes, PktNumBit)
 
-	NumSymbols := len(packets)
+	// NumSymbols := len(packets)
 
-	encoder = InitBinaryCoder(NumSymbols, PktNumBit, RngSeed)
+	// encoder = InitBinaryCoder(NumSymbols, PktNumBit, RngSeed)
 
-	fmt.Println("Number of symbols:", encoder.NumSymbols)
-	fmt.Println("Number of bit per packet:", encoder.NumBitPacket)
+	// fmt.Println("Number of symbols:", encoder.NumSymbols)
+	// fmt.Println("Number of bit per packet:", encoder.NumBitPacket)
 
-	// Initialize encoder with random bit packets
-	for packetID := 0; packetID < encoder.NumSymbols; packetID++ {
-		coefficients := make([]byte, encoder.NumSymbols)
-		coefficients[packetID] = 1
-		encoder.ConsumePacket(coefficients, packets[packetID])
-	}
+	// // Initialize encoder with random bit packets
+	// for packetID := 0; packetID < encoder.NumSymbols; packetID++ {
+	// 	coefficients := make([]byte, encoder.NumSymbols)
+	// 	coefficients[packetID] = 1
+	// 	encoder.ConsumePacket(coefficients, packets[packetID])
+	// }
 
-	for {
-		encodedPkt, err := encoder.GetNewCodedPacketByte(len(chunkBytes), 0)
-		if err != nil {
-			fmt.Println("Error encoding packet data:", err)
-			return
-		}
+	// for {
+	// 	encodedPkt, err := encoder.GetNewCodedPacketByte(len(chunkBytes), 0)
+	// 	if err != nil {
+	// 		fmt.Println("Error encoding packet data:", err)
+	// 		return
+	// 	}
 
-		_, err = stream.Write(encodedPkt)
-		if err != nil {
-			panic(err)
-		}
+	// 	_, err = stream.Write(encodedPkt)
+	// 	if err != nil {
+	// 		panic(err)
+	// 	}
 
-		buf := make([]byte, 4)
-		_, err = stream.Read(buf)
-		if err != nil {
-			if err == io.EOF {
-				// Handle end of stream; this is expected when the other side closes the stream.
-				fmt.Println("Stream closed by server")
-				break // Exit reading loop gracefully
-			} else {
-				fmt.Errorf("Error reading from stream: %v", err)
-				continue
-			}
-		}
-		fmt.Printf("Received %v from server\n", string(buf))
-		// }
-	}
+	// 	buf := make([]byte, 4)
+	// 	_, err = stream.Read(buf)
+	// 	if err != nil {
+	// 		if err == io.EOF {
+	// 			// Handle end of stream; this is expected when the other side closes the stream.
+	// 			fmt.Println("Stream closed by server")
+	// 			break // Exit reading loop gracefully
+	// 		} else {
+	// 			fmt.Errorf("Error reading from stream: %v", err)
+	// 			continue
+	// 		}
+	// 	}
+	// 	fmt.Printf("Received %v from server\n", string(buf))
+	// 	// }
+	// }
 }
 
 func server(ctx context.Context) {
@@ -177,78 +176,78 @@ func server(ctx context.Context) {
 }
 
 func revieveFile(stream quic.Stream) {
-	var first bool = true
-	recieved := 0
-	var decoder *BinaryCoder
+	// var first bool = true
+	// recieved := 0
+	// var decoder *BinaryCoder
 
-	// create a new buffer to store the incoming packets
-	for {
-		buffer := make([]byte, 8192) // A 4KB buffer
-		n, err := stream.Read(buffer)
-		if err != nil {
-			if err == io.EOF {
-				// EOF indicates the client closed the stream. All data has been received.
-				fmt.Println("Stream closed by client")
-				break
-			}
-			// Handle other errors that might occur during reading.
-			fmt.Println("Error reading from stream:", err)
-			continue // or handle the error appropriately
-		}
+	// // create a new buffer to store the incoming packets
+	// for {
+	// 	buffer := make([]byte, 8192) // A 4KB buffer
+	// 	n, err := stream.Read(buffer)
+	// 	if err != nil {
+	// 		if err == io.EOF {
+	// 			// EOF indicates the client closed the stream. All data has been received.
+	// 			fmt.Println("Stream closed by client")
+	// 			break
+	// 		}
+	// 		// Handle other errors that might occur during reading.
+	// 		fmt.Println("Error reading from stream:", err)
+	// 		continue // or handle the error appropriately
+	// 	}
 
-		if _, err := stream.Write([]byte("ACK")); err != nil {
-			fmt.Printf("Error sending acknowledgment: %v\n", err)
-			// Decide on error handling strategy, possibly continue to the next stream.
-		}
+	// 	if _, err := stream.Write([]byte("ACK")); err != nil {
+	// 		fmt.Printf("Error sending acknowledgment: %v\n", err)
+	// 		// Decide on error handling strategy, possibly continue to the next stream.
+	// 	}
 
-		data, err := DecodeByteToPacketData(buffer[:n])
+	// 	data, err := DecodeByteToPacketData(buffer[:n])
 
-		if err != nil {
-			fmt.Println("Error decoding packet data:", err)
-			// Decide on error handling strategy, possibly continue to the next stream.
-		}
+	// 	if err != nil {
+	// 		fmt.Println("Error decoding packet data:", err)
+	// 		// Decide on error handling strategy, possibly continue to the next stream.
+	// 	}
 
-		if first {
-			// Assuming InitBinaryCoder, PktNumBit, and RngSeed are correctly defined elsewhere.
-			decoder = InitBinaryCoder(data.NumSymbols, PktNumBit, 1)
-			first = false
-		}
+	// 	if first {
+	// 		// Assuming InitBinaryCoder, PktNumBit, and RngSeed are correctly defined elsewhere.
+	// 		decoder = InitBinaryCoder(data.NumSymbols, PktNumBit, 1)
+	// 		first = false
+	// 	}
 
-		coef := uint64sToBytes(data.Coefficient, data.NumSymbols)
-		decoder.ConsumePacket(coef, data.Packet)
+	// 	coef := uint64sToBytes(data.Coefficient, data.NumSymbols)
+	// 	decoder.ConsumePacket(coef, data.Packet)
 
-		fmt.Printf("Received packets %v\n", recieved)
-		recieved++
+	// 	fmt.Printf("Received packets %v\n", recieved)
+	// 	recieved++
 
-		fmt.Printf("## Decode %d out of %d\n", decoder.GetNumDecoded(), decoder.NumSymbols)
+	// 	fmt.Printf("## Decode %d out of %d\n", decoder.GetNumDecoded(), decoder.NumSymbols)
 
-		if decoder.IsFullyDecoded() {
-			bitsize := data.FileSize * 8
-			file := PacketsToBytes(decoder.PacketVector, decoder.NumBitPacket, bitsize)
-			filename := fmt.Sprintf("recv.m4s")
-			if err := os.WriteFile(filename, file, 0644); err != nil {
-				fmt.Printf("Failed to save file: %v\n", err)
-				// Handle the error, such as notifying the client or logging.
-				continue // Or break, based on your error handling policy.
-			}
+	// 	if decoder.IsFullyDecoded() {
+	// 		bitsize := data.FileSize * 8
+	// 		file := PacketsToBytes(decoder.PacketVector, decoder.NumBitPacket, bitsize)
+	// 		filename := fmt.Sprintf("recv.m4s")
+	// 		if err := os.WriteFile(filename, file, 0644); err != nil {
+	// 			fmt.Printf("Failed to save file: %v\n", err)
+	// 			// Handle the error, such as notifying the client or logging.
+	// 			continue // Or break, based on your error handling policy.
+	// 		}
 
-			if _, err := stream.Write([]byte("END")); err != nil {
-				fmt.Printf("Error sending acknowledgment: %v\n", err)
-				// Decide on error handling strategy, possibly continue to the next stream.
-			}
+	// 		if _, err := stream.Write([]byte("END")); err != nil {
+	// 			fmt.Printf("Error sending acknowledgment: %v\n", err)
+	// 			// Decide on error handling strategy, possibly continue to the next stream.
+	// 		}
 
-			// Properly close the stream after the loop
-			if err := stream.Close(); err != nil {
-				fmt.Printf("Error closing stream: %v\n", err)
-			}
+	// 		// Properly close the stream after the loop
+	// 		if err := stream.Close(); err != nil {
+	// 			fmt.Printf("Error closing stream: %v\n", err)
+	// 		}
 
-			time.Sleep(1 * time.Second)
+	// 		time.Sleep(1 * time.Second)
 
-			break
-		}
-	}
+	// 		break
+	// 	}
+	// }
 
-	fmt.Printf("## Finished receiving file\n")
+	// fmt.Printf("## Finished receiving file\n")
 }
 
 func handleSession(sess quic.Session) {

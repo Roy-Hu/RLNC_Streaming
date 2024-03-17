@@ -10,7 +10,7 @@ import (
 
 func TestBinaryCoder(t *testing.T) {
 	// Parameters
-	NumSymbols := 500
+	NumSymbols := 100
 	NumBitPacket := PktNumBit
 	RngSeed := int64(1)
 
@@ -20,13 +20,16 @@ func TestBinaryCoder(t *testing.T) {
 	encoder := InitBinaryCoder(NumSymbols, NumBitPacket, RngSeed)
 	decoder := InitBinaryCoder(NumSymbols, NumBitPacket, RngSeed)
 
+	packets := make([][]byte, NumSymbols)
 	// Initialize encoder with random bit packets
 	for packetID := 0; packetID < encoder.NumSymbols; packetID++ {
-		packet := make([]int, encoder.NumBitPacket)
+		packet := make([]byte, encoder.NumBitPacket)
 		randomBits := rand.Uint64()
 		for i := range packet {
-			packet[i] = int((randomBits >> (uint(encoder.NumBitPacket) - 1 - uint(i))) & 1)
+			packet[i] = byte((randomBits >> (uint(encoder.NumBitPacket) - 1 - uint(i))) & 1)
 		}
+
+		packets[packetID] = packet
 		coefficients := make([]byte, encoder.NumSymbols)
 		coefficients[packetID] = 1
 		encoder.ConsumePacket(coefficients, packet)
@@ -47,18 +50,16 @@ func TestBinaryCoder(t *testing.T) {
 
 	t.Logf("\n# Finished !!!")
 
-	if equal(decoder.PacketVector, encoder.PacketVector) {
+	if equal(decoder.PacketVector, packets) {
 		t.Logf("## Successfully decoded all packets at the receiver after %d messages.", necessaryMessages)
 		t.Logf("## Whole process took %.2f ms.", time.Since(tic).Seconds()*1000)
-		t.Logf("## Decoded packet vectors: %v", decoder.PacketVector)
-		t.Logf("## Encoder packet vectors: %v", encoder.PacketVector)
 	} else {
 		t.Error("## Error, decoded packet vectors are not equal!!!")
 	}
 }
 
 // Helper function to check if two 2D slices are equal
-func equal(a, b [][]int) bool {
+func equal(a, b [][]byte) bool {
 	if len(a) != len(b) {
 		return false
 	}

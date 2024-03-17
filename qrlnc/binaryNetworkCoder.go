@@ -15,7 +15,7 @@ type BinaryCoder struct {
 	symbolDecoded     []bool
 	id                [][]byte
 	coefficientMatrix [][]byte
-	PacketVector      [][]int
+	PacketVector      [][]byte
 }
 
 func InitBinaryCoder(NumSymbols int, packetSize int, RngSeed int64) *BinaryCoder {
@@ -28,7 +28,7 @@ func InitBinaryCoder(NumSymbols int, packetSize int, RngSeed int64) *BinaryCoder
 		symbolDecoded:     make([]bool, NumSymbols),
 		id:                identity(NumSymbols),
 		coefficientMatrix: make([][]byte, NumSymbols),
-		PacketVector:      make([][]int, NumSymbols),
+		PacketVector:      make([][]byte, NumSymbols),
 	}
 	bc.reset()
 	return bc
@@ -46,7 +46,7 @@ func (bc *BinaryCoder) reset() {
 			bc.coefficientMatrix[k][bc.NumSymbols+j] = bc.id[k][j]
 		}
 	}
-	bc.PacketVector = make([][]int, bc.NumSymbols)
+	bc.PacketVector = make([][]byte, bc.NumSymbols)
 }
 
 func (bc *BinaryCoder) isSymbolDecoded(index int) bool {
@@ -56,7 +56,7 @@ func (bc *BinaryCoder) isSymbolDecoded(index int) bool {
 	return bc.symbolDecoded[index]
 }
 
-func (bc *BinaryCoder) getDecodedSymbol(index int) []int {
+func (bc *BinaryCoder) getDecodedSymbol(index int) []byte {
 	if bc.isSymbolDecoded(index) {
 		return bc.PacketVector[index]
 	}
@@ -89,7 +89,7 @@ func (bc *BinaryCoder) rank() int {
 	return bc.numIndependent
 }
 
-func (bc *BinaryCoder) ConsumePacket(coefficients []byte, packet []int) {
+func (bc *BinaryCoder) ConsumePacket(coefficients []byte, packet []byte) {
 	if !bc.IsFullyDecoded() {
 		copy(bc.coefficientMatrix[bc.numIndependent], coefficients)
 
@@ -120,7 +120,7 @@ func (bc *BinaryCoder) ConsumePacket(coefficients []byte, packet []int) {
 	}
 }
 
-func (bc *BinaryCoder) getSysCodedPacket(index int) ([]int, []int) {
+func (bc *BinaryCoder) getSysCodedPacket(index int) ([]int, []byte) {
 	if index < 0 || index >= bc.NumSymbols {
 		return nil, nil
 	}
@@ -134,9 +134,9 @@ func (bc *BinaryCoder) getSysCodedPacket(index int) ([]int, []int) {
 	return nil, nil
 }
 
-func (bc *BinaryCoder) GetNewCodedPacket() ([]byte, []int) {
+func (bc *BinaryCoder) GetNewCodedPacket() ([]byte, []byte) {
 	coefficients := make([]byte, bc.NumSymbols)
-	packet := make([]int, bc.NumBitPacket)
+	packet := make([]byte, bc.NumBitPacket)
 
 	var randomDecisions []int
 
@@ -165,7 +165,7 @@ func (bc *BinaryCoder) GetNewCodedPacket() ([]byte, []int) {
 }
 
 func (bc *BinaryCoder) GetNewCodedPacketByte(fileSize int, chunkId int) ([]byte, error) {
-	coefficient, packet := bc.GetNewCodedPacket()
+	coefficient, _ := bc.GetNewCodedPacket()
 
 	coef := bytesToUint64s(coefficient)
 	xncPkt := XNC{
@@ -173,7 +173,7 @@ func (bc *BinaryCoder) GetNewCodedPacketByte(fileSize int, chunkId int) ([]byte,
 		FileSize:    fileSize,
 		NumSymbols:  bc.NumSymbols,
 		Coefficient: coef,
-		Packet:      packet,
+		// Packet:      packet,
 	}
 
 	encodedPkt, err := EncodePacketDataToByte(xncPkt)
