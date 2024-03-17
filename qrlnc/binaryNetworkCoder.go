@@ -165,18 +165,20 @@ func (bc *BinaryCoder) GetNewCodedPacket() ([]byte, []byte) {
 }
 
 func (bc *BinaryCoder) GetNewCodedPacketByte(fileSize int, chunkId int) ([]byte, error) {
-	coefficient, _ := bc.GetNewCodedPacket()
+	coefficient, packet := bc.GetNewCodedPacket()
 
-	coef := bytesToUint64s(coefficient)
+	pkt, _ := BytesToUint64s(packet)
+	coef, _ := BytesToUint64s(coefficient)
+
 	xncPkt := XNC{
-		// ChunkId:     chunkId,
+		ChunkId:     chunkId,
 		FileSize:    fileSize,
 		NumSymbols:  bc.NumSymbols,
 		Coefficient: coef,
-		// Packet:      packet,
+		Packet:      pkt,
 	}
 
-	encodedPkt, err := EncodePacketDataToByte(xncPkt)
+	encodedPkt, err := EncodeXNCToByte(xncPkt)
 
 	if err != nil {
 		fmt.Println("Error encoding packet data:", err)

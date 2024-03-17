@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/gob"
 	"errors"
+	"fmt"
 )
 
 // 8192 bits = 1024 bytes
@@ -51,10 +52,10 @@ type XNC struct {
 	FileSize    int
 	NumSymbols  int
 	Coefficient []uint64
-	Packet      []int
+	Packet      []uint64
 }
 
-func bytesToUint64s(bytes []byte) []uint64 {
+func BytesToUint64s(bytes []byte) ([]uint64, int) {
 	// Pad the byte slice with zeros to ensure its length is a multiple of 8.
 	for len(bytes)%8 != 0 {
 		bytes = append(bytes, 0)
@@ -65,10 +66,10 @@ func bytesToUint64s(bytes []byte) []uint64 {
 		uint64s[i] = binary.BigEndian.Uint64(bytes[i*8 : (i+1)*8])
 	}
 
-	return uint64s
+	return uint64s, len(bytes)
 }
 
-func uint64sToBytes(uint64s []uint64, originalLength int) []byte {
+func Uint64sToBytes(uint64s []uint64, originalLength int) []byte {
 	bytes := make([]byte, len(uint64s)*8)
 	for i, val := range uint64s {
 		binary.BigEndian.PutUint64(bytes[i*8:], val)
@@ -78,7 +79,7 @@ func uint64sToBytes(uint64s []uint64, originalLength int) []byte {
 	return bytes[:originalLength]
 }
 
-func EncodePacketDataToByte(data XNC) ([]byte, error) {
+func EncodeXNCToByte(data XNC) ([]byte, error) {
 	var buf bytes.Buffer
 	encoder := gob.NewEncoder(&buf)
 	if err := encoder.Encode(data); err != nil {
@@ -87,7 +88,7 @@ func EncodePacketDataToByte(data XNC) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func DecodeByteToPacketData(data []byte) (XNC, error) {
+func DecodeByteToXNC(data []byte) (XNC, error) {
 	buf := bytes.NewBuffer(data)
 	decoder := gob.NewDecoder(buf)
 	var decodedData XNC
@@ -100,7 +101,7 @@ func DecodeByteToPacketData(data []byte) (XNC, error) {
 	return decodedData, nil
 }
 
-func BytesToPackets(byteData []byte, NumBitPacket int) [][]int {
+func BytesToPackets(byteData []byte, NumBitPacket int) [][]byte {
 	// Calculate the total number of bits in the byteData
 	totalBits := len(byteData) * 8
 	// Calculate the number of packets needed based on the NumBitPacket
@@ -109,11 +110,11 @@ func BytesToPackets(byteData []byte, NumBitPacket int) [][]int {
 		numPackets++ // Add an extra packet if there's a remainder
 	}
 
-	packets := make([][]int, numPackets)
+	packets := make([][]byte, numPackets)
 	bitIndex := 0 // To keep track of which bit we're on across the byteData
 
 	for i := 0; i < numPackets; i++ {
-		packet := make([]int, NumBitPacket)
+		packet := make([]byte, NumBitPacket)
 		for j := 0; j < NumBitPacket; j++ {
 			if bitIndex >= totalBits {
 				// If we've processed all bits, remaining packet bits are set to 0
@@ -123,7 +124,7 @@ func BytesToPackets(byteData []byte, NumBitPacket int) [][]int {
 			byteIndex := bitIndex / 8                            // Find the byte index in the byteData
 			bitPosition := 7 - (bitIndex % 8)                    // Calculate bit position within the current byte
 			bitValue := (byteData[byteIndex] >> bitPosition) & 1 // Extract the bit value
-			packet[j] = int(bitValue)
+			packet[j] = bitValue
 			bitIndex++ // Move to the next bit
 		}
 		packets[i] = packet
@@ -132,10 +133,11 @@ func BytesToPackets(byteData []byte, NumBitPacket int) [][]int {
 	return packets
 }
 
-func PacketsToBytes(packets [][]int, NumBitPacket int, originalPacketSize int) []byte {
+func PacketsToBytes(packets [][]byte, NumBitPacket int, originalPacketSize int) []byte {
 	totalBytes := originalPacketSize / 8
 	if originalPacketSize%8 != 0 {
-		totalBytes++ // Account for leftover bits
+		fmt.Print("Wrong originalPacketSize\n")
+		return nil
 	}
 
 	byteData := make([]byte, totalBytes)

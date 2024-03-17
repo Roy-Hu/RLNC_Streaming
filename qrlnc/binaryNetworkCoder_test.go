@@ -63,11 +63,11 @@ func equal(a, b [][]byte) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	for i := range a {
+	for i := 0; i < len(a); i++ {
 		if len(a[i]) != len(b[i]) {
 			return false
 		}
-		for j := range a[i] {
+		for j := 0; j < len(a[0]); j++ {
 			if a[i][j] != b[i][j] {
 				return false
 			}
