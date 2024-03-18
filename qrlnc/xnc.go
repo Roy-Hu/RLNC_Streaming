@@ -12,6 +12,8 @@ var RNGSEED int64 = int64(1)
 
 var TYPE_NORM byte = 0x1
 var TYPE_XNC byte = 0x2
+var TYPE_ACK byte = 0x3
+
 var TYPESIZE int = 1
 var IDSIZE int = 4
 var FILESIZESIZE int = 4
@@ -20,9 +22,38 @@ var CHUNKSIZE int = 1 << 17
 var SYMBOLNUM int = (CHUNKSIZE * 8) / PKTBITNUM
 var COEFNUM int = SYMBOLNUM / 64
 var FRAMESIZE int = TYPESIZE + IDSIZE + FILESIZESIZE + COEFNUM*8 + PKTNUM*8
+var ACKSIZE int = TYPESIZE + IDSIZE
 
 // XNC pkt
 // Type + ChunkId + FileSize+ Packet
+func EncodeAck(data XNC_ACK) ([]byte, error) {
+	pkt := []byte{}
+
+	pkt = append(pkt, data.Type)
+
+	chunkId := make([]byte, 4)
+	binary.BigEndian.PutUint32(chunkId, uint32(data.ChunkId))
+	pkt = append(pkt, chunkId...)
+
+	return pkt, nil
+}
+
+func DecodeAck(data []byte) (XNC_ACK, error) {
+	if len(data) != ACKSIZE {
+		return XNC_ACK{}, fmt.Errorf("XNC pkt size is not correct")
+	}
+
+	if data[0] != TYPE_ACK {
+		return XNC_ACK{}, fmt.Errorf("pkt type is not correct")
+	}
+
+	ack := XNC_ACK{}
+
+	ack.Type = data[0]
+	ack.ChunkId = int(binary.BigEndian.Uint32(data[1:5]))
+
+	return ack, nil
+}
 
 func EncodeXNCPkt(data XNC) ([]byte, error) {
 	if len(data.Coefficient) != COEFNUM || len(data.Packet) != PKTNUM {
@@ -37,9 +68,9 @@ func EncodeXNCPkt(data XNC) ([]byte, error) {
 	binary.BigEndian.PutUint32(chunkId, uint32(data.ChunkId))
 	pkt = append(pkt, chunkId...)
 
-	filesize := make([]byte, 4)
-	binary.BigEndian.PutUint32(filesize, uint32(data.FileSize))
-	pkt = append(pkt, filesize...)
+	pktsize := make([]byte, 4)
+	binary.BigEndian.PutUint32(pktsize, uint32(data.PktSize))
+	pkt = append(pkt, pktsize...)
 
 	for i := 0; i < COEFNUM; i++ {
 		coef := make([]byte, 8)
@@ -64,7 +95,7 @@ func DecodeXNCPkt(data []byte) (XNC, error) {
 	xnc := XNC{}
 	xnc.Type = data[0]
 	xnc.ChunkId = int(binary.BigEndian.Uint32(data[1:5]))
-	xnc.FileSize = int(binary.BigEndian.Uint32(data[5:9]))
+	xnc.PktSize = int(binary.BigEndian.Uint32(data[5:9]))
 
 	for i := 0; i < COEFNUM; i++ {
 		xnc.Coefficient = append(xnc.Coefficient, binary.BigEndian.Uint64(data[9+i*8:17+i*8]))
@@ -80,9 +111,14 @@ func DecodeXNCPkt(data []byte) (XNC, error) {
 type XNC struct {
 	Type        byte
 	ChunkId     int
-	FileSize    int
+	PktSize     int
 	Coefficient []uint64
 	Packet      []uint64
+}
+
+type XNC_ACK struct {
+	Type    byte
+	ChunkId int
 }
 
 // packBinaryBytesToUint64s takes a slice of bytes, where each byte is expected to be 0x00 or 0x01,

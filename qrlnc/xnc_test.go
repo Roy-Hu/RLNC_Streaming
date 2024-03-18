@@ -39,7 +39,7 @@ func TestWhole(t *testing.T) {
 		end := Min(i+CHUNKSIZE, i+len(filebytes[i:]))
 		chunkBytes := filebytes[i:end]
 
-		filesize := end - i
+		size := end - i
 
 		// // padding chunkbytes to chunk size
 		if len(chunkBytes) < CHUNKSIZE {
@@ -73,8 +73,9 @@ func TestWhole(t *testing.T) {
 			}
 
 			xncE := XNC{
+				Type:        TYPE_XNC,
 				ChunkId:     chkId,
-				FileSize:    filesize,
+				PktSize:     size,
 				Coefficient: coefEu64,
 				Packet:      pktEu64,
 			}
@@ -127,7 +128,7 @@ func TestWhole(t *testing.T) {
 				}
 
 				recvfile := PacketsToBytes(decoder.PacketVector, decoder.NumBitPacket, CHUNKSIZE*8)
-				recvfile = recvfile[:xncD.FileSize]
+				recvfile = recvfile[:xncD.PktSize]
 
 				if !bytes.Equal(recvfile, filebytes[i:end]) {
 					t.Errorf("## recvfile and filebytes do not match.")
@@ -191,7 +192,7 @@ func TestEncodeXNCPkt(t *testing.T) {
 	xnc := XNC{
 		ChunkId:     1,
 		Type:        byte(TYPE_XNC),
-		FileSize:    4,
+		PktSize:     4,
 		Coefficient: []uint64{1342493851, 1238124},
 		Packet:      make([]uint64, PKTNUM),
 	}
@@ -298,7 +299,7 @@ func TestXNCToByte(t *testing.T) {
 	xnc := XNC{
 		ChunkId:     1,
 		Type:        byte(3),
-		FileSize:    4,
+		PktSize:     4,
 		Coefficient: []uint64{1, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 		Packet:      []uint64{135431, 51908357, 1324951, 1587324, 1587324, 1587324, 1587324, 1587324, 1587324, 1587324},
 	}
@@ -327,7 +328,7 @@ func XNCEqual(a, b XNC) bool {
 	if a.Type != b.Type {
 		return false
 	}
-	if a.FileSize != b.FileSize {
+	if a.PktSize != b.PktSize {
 		return false
 	}
 	if !bytes.Equal(UnpackUint64sToBinaryBytes(a.Coefficient, len(a.Coefficient)), UnpackUint64sToBinaryBytes(b.Coefficient, len(b.Coefficient))) {
