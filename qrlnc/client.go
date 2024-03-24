@@ -112,12 +112,13 @@ func Client(filename string) {
 			recvfile = append(recvfile, file...)
 
 			if xnc.ChunkId == END_CHUNK {
+				stream.Context().Done()
+
 				fmt.Printf("## Last chunk recieved\n")
 				if err := os.WriteFile("recv.m4s", recvfile, 0644); err != nil {
 					fmt.Errorf("Failed to save file: %v\n", err)
 					return
 				}
-
 				break
 			}
 		}

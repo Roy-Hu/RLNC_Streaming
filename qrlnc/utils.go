@@ -3,6 +3,7 @@ package qrlnc
 import (
 	"crypto/tls"
 	"fmt"
+	"runtime"
 	"sync"
 )
 
@@ -89,30 +90,39 @@ func binMatRref(A *[][]byte) ([][]byte, int, []bool) {
 }
 
 // binMatDot performs dot product of two binary matrices
-func binMatDot(K [][]byte, L [][]byte) [][]byte {
+func binMatDot(K, L [][]byte) [][]byte {
 	numRows := len(K)
 	numBits := len(L[0])
 	result := make([][]byte, numRows)
 
 	var wg sync.WaitGroup
-	wg.Add(numRows) // Set the number of goroutines to wait for
+	numGoroutines := runtime.NumCPU() // For example, could be runtime.NumCPU() for dynamic allocation
+	rowsPerGoroutine := (numRows + numGoroutines - 1) / numGoroutines
 
-	for row := range K {
-		go func(row int) {
-			defer wg.Done() // Signal that this goroutine is done
-			rowSolution := make([]byte, numBits)
-			for k := range K[row] {
-				if K[row][k] != 0 {
-					for j := range L[k] {
-						rowSolution[j] ^= (K[row][k] & L[k][j])
+	for i := 0; i < numGoroutines; i++ {
+		start := i * rowsPerGoroutine
+		end := start + rowsPerGoroutine
+		if end > numRows {
+			end = numRows
+		}
+		wg.Add(1)
+		go func(start, end int) {
+			defer wg.Done()
+			for row := start; row < end; row++ {
+				rowSolution := make([]byte, numBits)
+				for k := range K[row] {
+					if K[row][k] != 0 {
+						for j := range L[k] {
+							rowSolution[j] ^= (K[row][k] & L[k][j])
+						}
 					}
 				}
+				result[row] = rowSolution
 			}
-			result[row] = rowSolution
-		}(row)
+		}(start, end)
 	}
 
-	wg.Wait() // Wait for all goroutines to finish
+	wg.Wait()
 	return result
 }
 

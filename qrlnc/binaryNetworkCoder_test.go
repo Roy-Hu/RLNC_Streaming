@@ -10,7 +10,7 @@ import (
 
 func TestBinaryCoder(t *testing.T) {
 	// Parameters
-	NumSymbols := 128
+	NumSymbols := SYMBOLNUM
 	NumBitPacket := PKTBITNUM
 	RNGSEED := int64(1)
 
