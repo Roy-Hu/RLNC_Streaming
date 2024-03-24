@@ -62,34 +62,29 @@ func binMatRref(A *[][]byte) ([][]byte, int, []bool) {
 	}
 
 	symbolCutoff := len(B[0]) / 2
-	rowSums := make([]byte, len(B))
-	for i, row := range B {
-		for _, val := range row[:symbolCutoff] {
-			rowSums[i] += val
-		}
-	}
+	rowSums := make([]int, len(B))
 	rank := 0
-	for _, rSum := range rowSums {
-		if rSum >= 1 {
-			rank++
-		}
-	}
-	decodedSymbols := make(map[int]bool)
-	for _, row := range B {
-		if rowSum(row[:symbolCutoff]) == 1 {
-			for i, val := range row[:symbolCutoff] {
-				if val == 1 {
-					decodedSymbols[i] = true
-					break
-				}
+	isDecoded := make([]bool, symbolCutoff)
+
+	for i, row := range B {
+		leadingOne := false
+
+		for j, val := range row {
+			if j >= symbolCutoff {
+				break
+			}
+			rowSums[i] += int(val)
+			if val == 1 && !leadingOne {
+				leadingOne = true
+				rank++
 			}
 		}
+
+		if rowSums[i] == 1 && i < symbolCutoff {
+			isDecoded[i] = true
+		}
 	}
-	isDecoded := make([]bool, n)
-	for i := range isDecoded {
-		_, found := decodedSymbols[i]
-		isDecoded[i] = found
-	}
+
 	return B, rank, isDecoded
 }
 
@@ -109,7 +104,7 @@ func binMatDot(K [][]byte, L [][]byte) [][]byte {
 			for k := range K[row] {
 				if K[row][k] != 0 {
 					for j := range L[k] {
-						rowSolution[j] = (rowSolution[j] + K[row][k]*L[k][j]) & 1
+						rowSolution[j] ^= (K[row][k] & L[k][j])
 					}
 				}
 			}
@@ -157,4 +152,52 @@ func GenerateTLSConfig() *tls.Config {
 	return &tls.Config{
 		Certificates: []tls.Certificate{cert},
 	}
+}
+
+// compressBinaryMatrix compresses a binary matrix represented as [][]byte into [][]uint64.
+// Each uint64 value will represent up to 64 binary values from the original matrix.
+func compressBinaryMatrix(matrix [][]byte) [][]uint64 {
+	var result [][]uint64
+
+	// Determine the size of the uint64 row required to represent each row of the matrix.
+	var uint64RowSize int
+	if len(matrix) > 0 {
+		uint64RowSize = (len(matrix[0]) + 63) / 64 // Ceiling division to accommodate all bits.
+	}
+
+	for _, row := range matrix {
+		uint64Row := make([]uint64, uint64RowSize)
+		for i, bit := range row {
+			if bit == 1 {
+				// Calculate which uint64 value and bit position to set.
+				uint64Index := i / 64                      // Determine which uint64 element.
+				bitPosition := uint(i % 64)                // Determine the bit position within that uint64.
+				uint64Row[uint64Index] |= 1 << bitPosition // Set the bit using a bit operation.
+			}
+		}
+		result = append(result, uint64Row)
+	}
+
+	return result
+}
+
+// decompressBinaryMatrix decompresses a binary matrix represented as [][]uint64 back into [][]byte.
+func decompressBinaryMatrix(matrix [][]uint64, originalRowLength int) [][]byte {
+	var result [][]byte
+
+	for _, uint64Row := range matrix {
+		byteRow := make([]byte, originalRowLength)
+		for i := range byteRow {
+			uint64Index := i / 64       // Determine which uint64 element to check.
+			bitPosition := uint(i % 64) // Determine the bit position within that uint64.
+			if uint64Index < len(uint64Row) && (uint64Row[uint64Index]&(1<<bitPosition)) != 0 {
+				byteRow[i] = 1
+			} else {
+				byteRow[i] = 0
+			}
+		}
+		result = append(result, byteRow)
+	}
+
+	return result
 }

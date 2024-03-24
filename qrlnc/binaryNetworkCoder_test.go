@@ -10,7 +10,7 @@ import (
 
 func TestBinaryCoder(t *testing.T) {
 	// Parameters
-	NumSymbols := 100
+	NumSymbols := 128
 	NumBitPacket := PKTBITNUM
 	RNGSEED := int64(1)
 
@@ -45,7 +45,7 @@ func TestBinaryCoder(t *testing.T) {
 		coefficient, packet := encoder.GetNewCodedPacket()
 		decoder.ConsumePacket(coefficient, packet)
 		necessaryMessages++
-		t.Logf("## Decode %d out of %d", decoder.GetNumDecoded(), decoder.NumSymbols)
+		t.Logf("## Get %d, Decode %d out of %d", necessaryMessages, decoder.GetNumDecoded(), decoder.NumSymbols)
 	}
 
 	t.Logf("\n# Finished !!!")
@@ -55,6 +55,8 @@ func TestBinaryCoder(t *testing.T) {
 		t.Logf("## Whole process took %.2f ms.", time.Since(tic).Seconds()*1000)
 	} else {
 		t.Error("## Error, decoded packet vectors are not equal!!!")
+		t.Errorf("## Encoder: %v", packets[NumSymbols-1])
+		t.Errorf("## Decoder: %v", decoder.PacketVector[NumSymbols-1])
 	}
 }
 

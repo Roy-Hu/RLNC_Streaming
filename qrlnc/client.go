@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 
 	"github.com/lucas-clemente/quic-go"
 )
@@ -31,87 +30,98 @@ func Client(filename string) {
 	quicConf := &quic.Config{}
 	sess, err := quic.DialAddr("localhost:4242", &tls.Config{InsecureSkipVerify: true}, quicConf)
 	if err != nil {
-		panic(err)
+		fmt.Errorf("Error dialing server: %v", err)
 	}
 
-	chkId := 0
-	for i := 0; i < len(filebytes); i += CHUNKSIZE {
-		stream, err := sess.OpenStreamSync()
-		if err != nil {
-			panic(err)
-		}
+	stream, err := sess.OpenStreamSync()
+	if err != nil {
+		fmt.Errorf("Error opening stream: %v", err)
+	}
 
-		fmt.Printf("Open Stream for chunk %d\n", chkId)
+	fmt.Printf("filename len: %d\n", len(filename))
+	initpkt, err := EncodeInit(XNC_INIT{
+		Type:     TYPE_INIT,
+		Len:      len(filename),
+		Filename: filename,
+	})
+	if err != nil {
+		fmt.Errorf("Error encoding init packet: %v", err)
+	}
 
-		var encoder *BinaryCoder
+	// Send the filename
+	_, err = stream.Write(initpkt)
+	if err != nil {
+		fmt.Errorf("Error writing init packet: %v", err)
+	}
 
-		end := Min(i+CHUNKSIZE, i+len(filebytes[i:]))
-		chunkBytes := filebytes[i:end]
+	decoder := make(map[int]*BinaryCoder)
 
-		size := end - i
+	recieved := 0
+	chunkNum := 0
+	buffer := make([]byte, FRAMESIZE)
+	recvfile := []byte{}
 
-		// // padding chunkbytes to chunk size
-		if len(chunkBytes) < CHUNKSIZE {
-			chunkBytes = append(chunkBytes, make([]byte, CHUNKSIZE-len(chunkBytes))...)
-		}
-		packets := BytesToPackets(chunkBytes, PKTBITNUM)
+	for {
+		accu_recv := 0
 
-		encoder = InitBinaryCoder(len(packets), PKTBITNUM, RNGSEED)
-
-		// Initialize encoder with random bit packets
-		for packetID := 0; packetID < encoder.NumSymbols; packetID++ {
-			coefficients := make([]byte, encoder.NumSymbols)
-			coefficients[packetID] = 1
-			encoder.ConsumePacket(coefficients, packets[packetID])
-		}
-
-		sent := 0
-
-		for s := 0; s < len(packets); s++ {
-			coefficient, packet := encoder.GetNewCodedPacket()
-			coefu64, origLenCoef := PackBinaryBytesToUint64s(coefficient)
-			pktu64, origLenPkt := PackBinaryBytesToUint64s(packet)
-
-			if (len(coefu64) != COEFNUM) || (origLenCoef != SYMBOLNUM) || (origLenPkt != PKTBITNUM) {
-				fmt.Errorf("Error encoding packet data: invalid length")
-				continue
-			}
-
-			xnc := XNC{
-				Type:        TYPE_XNC,
-				ChunkId:     chkId,
-				PktSize:     size,
-				Coefficient: coefu64,
-				Packet:      pktu64,
-			}
-
-			pkt, err := EncodeXNCPkt(xnc)
-			if err != nil {
-				fmt.Errorf("Error encoding packet data: %v", err)
-				continue
-			}
-
-			_, err = stream.Write(pkt)
+		for accu_recv < FRAMESIZE {
+			n, err := stream.Read(buffer[accu_recv:])
 			if err != nil {
 				if err == io.EOF {
-					// The stream has been closed by the server, gracefully exit the loop.
-					fmt.Printf("Stream closed by the server, stopping write operations.\n")
+					fmt.Errorf("Stream closed by server")
 					break
-				} else if strings.Contains(err.Error(), "closed stream") {
-					fmt.Printf("Stream closed by the client, stopping write operations.\n")
-					continue
-				} else {
-					// Handle other errors that might not necessitate stopping.
-					fmt.Printf("Error writing to stream: %v\n", err)
-					continue
 				}
+				fmt.Println("Error reading from stream:", err)
+				continue // or handle the error appropriately
+			} else {
+				accu_recv += n
 			}
-
-			sent++
 		}
 
-		chkId++
+		xnc, err := DecodeXNCPkt(buffer)
+		if err != nil {
+			fmt.Println("Error decoding XNC packet:", err)
+			continue
+		}
+
+		if decoder[xnc.ChunkId] == nil {
+			fmt.Printf("Start Recieve chunk %d\n", xnc.ChunkId)
+			// Assuming InitBinaryCoder, PKTBITNUM, and RNGSEED are correctly defined elsewhere.
+			decoder[xnc.ChunkId] = InitBinaryCoder(SYMBOLNUM, PKTBITNUM, RNGSEED)
+			chunkNum++
+		} else if decoder[xnc.ChunkId].IsFullyDecoded() {
+			fmt.Printf("Chunk %d is already fully decoded\n", xnc.ChunkId)
+			continue
+		}
+
+		coefficient := UnpackUint64sToBinaryBytes(xnc.Coefficient, SYMBOLNUM)
+		pkt := UnpackUint64sToBinaryBytes(xnc.Packet, PKTBITNUM)
+
+		decoder[xnc.ChunkId].ConsumePacket(coefficient, pkt)
+
+		recieved++
+
+		if decoder[xnc.ChunkId].IsFullyDecoded() {
+			fmt.Printf("## Received packets %v, Decode %d out of %d\n", recieved, decoder[xnc.ChunkId].GetNumDecoded(), decoder[xnc.ChunkId].NumSymbols)
+
+			fmt.Print("## File fully received\n")
+
+			file := PacketsToBytes(decoder[xnc.ChunkId].PacketVector, PKTBITNUM, CHUNKSIZE*8)
+			file = file[:xnc.ChunkSize]
+
+			recvfile = append(recvfile, file...)
+
+			if xnc.ChunkId == END_CHUNK {
+				fmt.Printf("## Last chunk recieved\n")
+				if err := os.WriteFile("recv.m4s", recvfile, 0644); err != nil {
+					fmt.Errorf("Failed to save file: %v\n", err)
+					return
+				}
+
+				break
+			}
+		}
 	}
 
-	fmt.Printf("## Finished sending file\n")
+	fmt.Printf("## Finished recieving file\n")
 }

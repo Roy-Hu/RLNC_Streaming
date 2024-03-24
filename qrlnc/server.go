@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/lucas-clemente/quic-go"
 )
@@ -56,13 +57,130 @@ func handleSession(sess quic.Session) {
 			fmt.Printf("Error accepting stream: %v\n", err)
 			return // Or continue to try accepting new streams, depending on your error handling strategy.
 		}
-		// For each file transfer, open a new confirmation stream.
-		// This avoids sharing the same stream across multiple goroutines,
-		// reducing complexity around synchronization and error handling.
-		go func(s quic.Stream) {
-			revieveFile(s)
-		}(stream)
+
+		accu_recv := 0
+		buffer := make([]byte, INITSIZE)
+		for accu_recv < INITSIZE {
+			n, err := stream.Read(buffer[accu_recv:])
+			if err != nil {
+				if err == io.EOF {
+					fmt.Errorf("Stream closed by server")
+					break
+				}
+				fmt.Println("Error reading from stream:", err)
+				continue // or handle the error appropriately
+			} else {
+				accu_recv += n
+			}
+		}
+
+		init, err := DecodeInit(buffer)
+		if err != nil {
+			fmt.Errorf("Error decoding init packet: %v", err)
+			return
+		}
+
+		sendFile(stream, init.Filename)
 	}
+}
+
+func sendFile(stream quic.Stream, filename string) {
+	file, err := os.Open(filename)
+	if err != nil {
+		fmt.Errorf("Error opening file: %v", err)
+		return
+	}
+
+	defer file.Close() // Ensure the file is closed after reading
+
+	filebytes, err := io.ReadAll(file)
+	if err != nil {
+		fmt.Errorf("Error reading file: %v", err)
+		return
+	}
+	fmt.Printf("Read %d bytes from file\n", len(filebytes))
+	fmt.Printf("Chunk num %d\n", len(filebytes)/CHUNKSIZE)
+
+	chkId := 0
+	for i := 0; i < len(filebytes); i += CHUNKSIZE {
+		var encoder *BinaryCoder
+
+		fmt.Printf("Open Stream for chunk %d\n", chkId)
+
+		if i+CHUNKSIZE > len(filebytes) {
+			fmt.Printf("Last chunk\n")
+			chkId = END_CHUNK
+		}
+
+		end := Min(i+CHUNKSIZE, i+len(filebytes[i:]))
+		chunkBytes := filebytes[i:end]
+
+		size := end - i
+
+		// // padding chunkbytes to chunk size
+		if len(chunkBytes) < CHUNKSIZE {
+			chunkBytes = append(chunkBytes, make([]byte, CHUNKSIZE-len(chunkBytes))...)
+		}
+		packets := BytesToPackets(chunkBytes, PKTBITNUM)
+
+		encoder = InitBinaryCoder(len(packets), PKTBITNUM, RNGSEED)
+
+		// Initialize encoder with random bit packets
+		for packetID := 0; packetID < encoder.NumSymbols; packetID++ {
+			coefficients := make([]byte, encoder.NumSymbols)
+			coefficients[packetID] = 1
+			encoder.ConsumePacket(coefficients, packets[packetID])
+		}
+
+		sent := 0
+
+		for s := 0; s < len(packets); s++ {
+			coefficient, packet := encoder.GetNewCodedPacket()
+			coefu64, origLenCoef := PackBinaryBytesToUint64s(coefficient)
+			pktu64, origLenPkt := PackBinaryBytesToUint64s(packet)
+
+			if (len(coefu64) != COEFNUM) || (origLenCoef != SYMBOLNUM) || (origLenPkt != PKTBITNUM) {
+				fmt.Errorf("Error encoding packet data: invalid length")
+				continue
+			}
+
+			xnc := XNC{
+				Type:        TYPE_XNC,
+				ChunkId:     chkId,
+				ChunkSize:   size,
+				Coefficient: coefu64,
+				Packet:      pktu64,
+			}
+
+			pkt, err := EncodeXNCPkt(xnc)
+			if err != nil {
+				fmt.Errorf("Error encoding packet data: %v", err)
+				continue
+			}
+
+			_, err = stream.Write(pkt)
+			if err != nil {
+				if err == io.EOF {
+					// The stream has been closed by the server, gracefully exit the loop.
+					fmt.Printf("Stream closed by the client, stopping write operations.\n")
+					break
+				} else if strings.Contains(err.Error(), "closed stream") {
+					fmt.Printf("Stream closed by the server, stopping write operations.\n")
+					continue
+				} else {
+					// Handle other errors that might not necessitate stopping.
+					fmt.Printf("Error writing to stream: %v\n", err)
+					continue
+				}
+			}
+
+			sent++
+		}
+
+		chkId++
+	}
+
+	fmt.Printf("## Finished sending file\n")
 }
 
 func revieveFile(stream quic.Stream) {
@@ -117,7 +235,7 @@ func revieveFile(stream quic.Stream) {
 			fmt.Print("## File fully received\n")
 
 			file := PacketsToBytes(decoder.PacketVector, PKTBITNUM, CHUNKSIZE*8)
-			file = file[:xnc.PktSize]
+			file = file[:xnc.ChunkSize]
 
 			filename := fmt.Sprintf("recv_%d.m4s", xnc.ChunkId)
 			if err := os.WriteFile(filename, file, 0644); err != nil {

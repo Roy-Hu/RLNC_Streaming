@@ -75,7 +75,7 @@ func TestWhole(t *testing.T) {
 			xncE := XNC{
 				Type:        TYPE_XNC,
 				ChunkId:     chkId,
-				PktSize:     size,
+				ChunkSize:   size,
 				Coefficient: coefEu64,
 				Packet:      pktEu64,
 			}
@@ -128,7 +128,7 @@ func TestWhole(t *testing.T) {
 				}
 
 				recvfile := PacketsToBytes(decoder.PacketVector, decoder.NumBitPacket, CHUNKSIZE*8)
-				recvfile = recvfile[:xncD.PktSize]
+				recvfile = recvfile[:xncD.ChunkSize]
 
 				if !bytes.Equal(recvfile, filebytes[i:end]) {
 					t.Errorf("## recvfile and filebytes do not match.")
@@ -192,7 +192,7 @@ func TestEncodeXNCPkt(t *testing.T) {
 	xnc := XNC{
 		ChunkId:     1,
 		Type:        byte(TYPE_XNC),
-		PktSize:     4,
+		ChunkSize:   4,
 		Coefficient: []uint64{1342493851, 1238124},
 		Packet:      make([]uint64, PKTNUM),
 	}
@@ -295,11 +295,39 @@ func TestPacketToByte(t *testing.T) {
 	}
 }
 
+func TestInit(t *testing.T) {
+	init := XNC_INIT{
+		Type:     byte(TYPE_INIT),
+		Len:      4,
+		Filename: "test",
+	}
+
+	encode, err := EncodeInit(init)
+	if err != nil {
+		t.Errorf("Error encode xnc: %v", err)
+		return
+	}
+	decode, err := DecodeInit(encode)
+	if err != nil {
+		t.Errorf("Error decode xnc: %v", err)
+		return
+	}
+
+	if init.Type != decode.Type {
+		t.Errorf("Failed to decode xnc correctly.\nExpected: %v\nGot: %v", init.Type, decode.Type)
+	}
+	if init.Len != decode.Len {
+		t.Errorf("Failed to decode xnc correctly.\nExpected: %v\nGot: %v", init.Len, decode.Len)
+	}
+	if init.Filename != decode.Filename {
+		t.Errorf("Failed to decode xnc correctly.\nExpected: %v\nGot: %v", init.Filename, decode.Filename)
+	}
+}
 func TestXNCToByte(t *testing.T) {
 	xnc := XNC{
 		ChunkId:     1,
 		Type:        byte(3),
-		PktSize:     4,
+		ChunkSize:   4,
 		Coefficient: []uint64{1, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 		Packet:      []uint64{135431, 51908357, 1324951, 1587324, 1587324, 1587324, 1587324, 1587324, 1587324, 1587324},
 	}
@@ -328,7 +356,7 @@ func XNCEqual(a, b XNC) bool {
 	if a.Type != b.Type {
 		return false
 	}
-	if a.PktSize != b.PktSize {
+	if a.ChunkSize != b.ChunkSize {
 		return false
 	}
 	if !bytes.Equal(UnpackUint64sToBinaryBytes(a.Coefficient, len(a.Coefficient)), UnpackUint64sToBinaryBytes(b.Coefficient, len(b.Coefficient))) {

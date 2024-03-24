@@ -10,9 +10,9 @@ var PKTBITNUM int = 8192
 var PKTNUM int = PKTBITNUM / 64
 var RNGSEED int64 = int64(1)
 
-var TYPE_NORM byte = 0x1
-var TYPE_XNC byte = 0x2
-var TYPE_ACK byte = 0x3
+var TYPE_XNC byte = 0x1
+var TYPE_ACK byte = 0x2
+var TYPE_INIT byte = 0x3
 
 var TYPESIZE int = 1
 var IDSIZE int = 4
@@ -23,6 +23,82 @@ var SYMBOLNUM int = (CHUNKSIZE * 8) / PKTBITNUM
 var COEFNUM int = SYMBOLNUM / 64
 var FRAMESIZE int = TYPESIZE + IDSIZE + FILESIZESIZE + COEFNUM*8 + PKTNUM*8
 var ACKSIZE int = TYPESIZE + IDSIZE
+var INITSIZE int = 128
+var INFOSIZE int = TYPESIZE + 4 + 4
+
+var END_CHUNK int = 8192
+
+type XNC struct {
+	Type        byte
+	ChunkId     int
+	ChunkSize   int
+	Coefficient []uint64
+	Packet      []uint64
+}
+
+type XNC_ACK struct {
+	Type    byte
+	ChunkId int
+}
+
+type XNC_INIT struct {
+	Type     byte
+	Len      int
+	Filename string
+}
+
+type XNC_INFO struct {
+	Type     byte
+	ChunkNum int
+	FileSize int
+}
+
+func EncodeInfo(data XNC_INFO) ([]byte, error) {
+	pkt := []byte{}
+
+	pkt = append(pkt, data.Type)
+
+	chunkNum := make([]byte, 4)
+	binary.BigEndian.PutUint32(chunkNum, uint32(data.ChunkNum))
+	pkt = append(pkt, chunkNum...)
+
+	fileSize := make([]byte, 4)
+	binary.BigEndian.PutUint32(fileSize, uint32(data.FileSize))
+	pkt = append(pkt, fileSize...)
+
+	return pkt, nil
+}
+
+func EncodeInit(data XNC_INIT) ([]byte, error) {
+	pkt := make([]byte, 128)
+
+	pkt[0] = TYPE_INIT
+	binary.BigEndian.PutUint32(pkt[1:5], uint32(data.Len))
+
+	for i := 0; i < data.Len; i++ {
+		pkt[5+i] = data.Filename[i]
+	}
+
+	return pkt, nil
+}
+
+func DecodeInit(data []byte) (XNC_INIT, error) {
+	if len(data) != INITSIZE {
+		return XNC_INIT{}, fmt.Errorf("XNC pkt size is not correct")
+	}
+
+	if data[0] != TYPE_INIT {
+		return XNC_INIT{}, fmt.Errorf("pkt type is not correct")
+	}
+
+	init := XNC_INIT{}
+	init.Type = data[0]
+	init.Len = int(binary.BigEndian.Uint32(data[1:5]))
+	fmt.Printf("file len: %d\n", init.Len)
+	init.Filename = string(data[5 : 5+init.Len])
+
+	return init, nil
+}
 
 // XNC pkt
 // Type + ChunkId + FileSize+ Packet
@@ -69,7 +145,7 @@ func EncodeXNCPkt(data XNC) ([]byte, error) {
 	pkt = append(pkt, chunkId...)
 
 	pktsize := make([]byte, 4)
-	binary.BigEndian.PutUint32(pktsize, uint32(data.PktSize))
+	binary.BigEndian.PutUint32(pktsize, uint32(data.ChunkSize))
 	pkt = append(pkt, pktsize...)
 
 	for i := 0; i < COEFNUM; i++ {
@@ -95,7 +171,7 @@ func DecodeXNCPkt(data []byte) (XNC, error) {
 	xnc := XNC{}
 	xnc.Type = data[0]
 	xnc.ChunkId = int(binary.BigEndian.Uint32(data[1:5]))
-	xnc.PktSize = int(binary.BigEndian.Uint32(data[5:9]))
+	xnc.ChunkSize = int(binary.BigEndian.Uint32(data[5:9]))
 
 	for i := 0; i < COEFNUM; i++ {
 		xnc.Coefficient = append(xnc.Coefficient, binary.BigEndian.Uint64(data[9+i*8:17+i*8]))
@@ -106,19 +182,6 @@ func DecodeXNCPkt(data []byte) (XNC, error) {
 	}
 
 	return xnc, nil
-}
-
-type XNC struct {
-	Type        byte
-	ChunkId     int
-	PktSize     int
-	Coefficient []uint64
-	Packet      []uint64
-}
-
-type XNC_ACK struct {
-	Type    byte
-	ChunkId int
 }
 
 // packBinaryBytesToUint64s takes a slice of bytes, where each byte is expected to be 0x00 or 0x01,
