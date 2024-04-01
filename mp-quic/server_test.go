@@ -63,6 +63,7 @@ func (s *mockSession) OpenStream() (Stream, error) {
 }
 func (s *mockSession) AcceptStream() (Stream, error)    { panic("not implemented") }
 func (s *mockSession) OpenStreamSync() (Stream, error)  { panic("not implemented") }
+func (s *mockSession) GetRtt() time.Duration            { panic("not implemented") }
 func (s *mockSession) LocalAddr() net.Addr              { panic("not implemented") }
 func (s *mockSession) RemoteAddr() net.Addr             { return s.remoteAddr }
 func (*mockSession) Context() context.Context           { panic("not implemented") }

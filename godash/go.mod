@@ -5,6 +5,7 @@ module github.com/uccmisl/godash
 go 1.17
 
 replace github.com/lucas-clemente/quic-go => ../mp-quic
+replace github.com/comp529/qrlnc => ../qrlnc
 
 require (
 	github.com/bifurcation/mint v0.0.0-20200214151656-93c820e81448
@@ -16,6 +17,7 @@ require (
 	golang.org/x/net v0.0.0-20220225172249-27dd8689420f
 	gonum.org/v1/gonum v0.9.3
 	google.golang.org/grpc v1.44.0
+	github.com/comp529/qrlnc v0.0.0
 )
 
 require (

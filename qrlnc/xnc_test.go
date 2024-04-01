@@ -269,7 +269,7 @@ func TestPacketToByte(t *testing.T) {
 	if bytes.Equal(decode, byts) {
 		t.Logf("## Successfully decoded all packets at the receiver after messages.")
 	} else {
-		t.Errorf("Failed to decode all packets correctly.\nExpected: %x\nGot: %x", byts, decode)
+		t.Errorf("Failed to decode all packets correctly.\nExpected: %d\nGot: %d", len(byts), len(decode))
 	}
 
 	if err := os.WriteFile("recv.m4s", decode, 0644); err != nil {

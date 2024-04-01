@@ -94,7 +94,6 @@ func DecodeInit(data []byte) (XNC_INIT, error) {
 	init := XNC_INIT{}
 	init.Type = data[0]
 	init.Len = int(binary.BigEndian.Uint32(data[1:5]))
-	fmt.Printf("file len: %d\n", init.Len)
 	init.Filename = string(data[5 : 5+init.Len])
 
 	return init, nil

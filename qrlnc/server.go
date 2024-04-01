@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/lucas-clemente/quic-go"
 )
 
-func Server(ctx context.Context) {
+func Server(ctx context.Context, rootDir string) {
 	quicConf := &quic.Config{}
 	tlsConf := GenerateTLSConfig()
 	if tlsConf == nil {
@@ -36,12 +37,12 @@ func Server(ctx context.Context) {
 				return
 			}
 
-			go handleSession(sess)
+			go handleSession(sess, rootDir)
 		}
 	}
 }
 
-func handleSession(sess quic.Session) {
+func handleSession(sess quic.Session, rootDir string) {
 	// After file is fully received
 	fmt.Println("Session started, waiting for file transfers...")
 
@@ -58,10 +59,13 @@ func handleSession(sess quic.Session) {
 			return // Or continue to try accepting new streams, depending on your error handling strategy.
 		}
 
+		fmt.Println("Stream accepted, waiting for init packet...")
+
 		accu_recv := 0
 		buffer := make([]byte, INITSIZE)
 		for accu_recv < INITSIZE {
 			n, err := stream.Read(buffer[accu_recv:])
+			fmt.Printf("Read %d bytes\n", n)
 			if err != nil {
 				if err == io.EOF {
 					fmt.Errorf("Stream closed by server")
@@ -79,12 +83,15 @@ func handleSession(sess quic.Session) {
 			fmt.Errorf("Error decoding init packet: %v", err)
 			return
 		}
-
-		sendFile(stream, init.Filename)
+		fmt.Printf("Init Filename: %v\n", init.Filename)
+		filepath := filepath.Join(rootDir, init.Filename)
+		sendFile(stream, filepath)
 	}
 }
 
 func sendFile(stream quic.Stream, filename string) {
+	fmt.Printf("Send file %s\n", filename)
+
 	file, err := os.Open(filename)
 	if err != nil {
 		fmt.Errorf("Error opening file: %v", err)
@@ -104,8 +111,6 @@ func sendFile(stream quic.Stream, filename string) {
 	chkId := 0
 	for i := 0; i < len(filebytes); i += CHUNKSIZE {
 		var encoder *BinaryCoder
-
-		fmt.Printf("Open Stream for chunk %d\n", chkId)
 
 		if i+CHUNKSIZE > len(filebytes) {
 			fmt.Printf("Last chunk\n")

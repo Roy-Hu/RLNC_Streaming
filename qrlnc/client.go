@@ -5,27 +5,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/lucas-clemente/quic-go"
 )
 
-func Client(filename string) {
-	file, err := os.Open("test.m4s")
-	if err != nil {
-		fmt.Errorf("Error opening file: %v", err)
-		return
-	}
-
-	defer file.Close() // Ensure the file is closed after reading
-
-	filebytes, err := io.ReadAll(file)
-	if err != nil {
-		fmt.Errorf("Error reading file: %v", err)
-		return
-	}
-	fmt.Printf("Read %d bytes from file\n", len(filebytes))
-
-	fmt.Printf("Chunk num %d\n", len(filebytes)/CHUNKSIZE)
+func Client(filename string) ([]byte, time.Duration, float64) {
 
 	quicConf := &quic.Config{}
 	sess, err := quic.DialAddr("localhost:4242", &tls.Config{InsecureSkipVerify: true}, quicConf)
@@ -54,6 +39,8 @@ func Client(filename string) {
 		fmt.Errorf("Error writing init packet: %v", err)
 	}
 
+	fmt.Printf("Sent init packet\n")
+
 	decoder := make(map[int]*BinaryCoder)
 
 	recieved := 0
@@ -61,6 +48,8 @@ func Client(filename string) {
 	buffer := make([]byte, FRAMESIZE)
 	recvfile := []byte{}
 
+	startTime := time.Now()
+	totalBytesRead := 0
 	for {
 		accu_recv := 0
 
@@ -75,6 +64,7 @@ func Client(filename string) {
 				continue // or handle the error appropriately
 			} else {
 				accu_recv += n
+				totalBytesRead += n
 			}
 		}
 
@@ -115,14 +105,27 @@ func Client(filename string) {
 				stream.Context().Done()
 
 				fmt.Printf("## Last chunk recieved\n")
-				if err := os.WriteFile("recv.m4s", recvfile, 0644); err != nil {
+				if err := os.WriteFile(filename, recvfile, 0644); err != nil {
 					fmt.Errorf("Failed to save file: %v\n", err)
-					return
+
+					duration := time.Since(startTime).Seconds()
+					kbps := float64(totalBytesRead*8) / duration / 1024
+					fmt.Printf("Received data at %.2f kbps\n", kbps)
+
+					return nil, sess.GetRtt(), kbps
 				}
+
 				break
 			}
 		}
 	}
 
+	duration := time.Since(startTime).Seconds()
+	kbps := float64(totalBytesRead*8) / duration / 1024
+	fmt.Printf("Received data at %.2f kbps\n", kbps)
+
 	fmt.Printf("## Finished recieving file\n")
+	fmt.Printf("## Rtt %v\n", sess.GetRtt())
+
+	return recvfile, sess.GetRtt(), kbps
 }
