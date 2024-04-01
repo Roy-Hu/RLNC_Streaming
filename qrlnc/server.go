@@ -85,11 +85,16 @@ func handleSession(sess quic.Session, rootDir string) {
 		}
 		fmt.Printf("Init Filename: %v\n", init.Filename)
 		filepath := filepath.Join(rootDir, init.Filename)
-		sendFile(stream, filepath)
+
+		if init.Type == TYPE_INIT_ENC {
+			sendFile(stream, filepath, true)
+		} else {
+			sendFile(stream, filepath, false)
+		}
 	}
 }
 
-func sendFile(stream quic.Stream, filename string) {
+func sendFile(stream quic.Stream, filename string, encode bool) {
 	fmt.Printf("Send file %s\n", filename)
 
 	file, err := os.Open(filename)
@@ -108,10 +113,11 @@ func sendFile(stream quic.Stream, filename string) {
 	fmt.Printf("Read %d bytes from file\n", len(filebytes))
 	fmt.Printf("Chunk num %d\n", len(filebytes)/CHUNKSIZE)
 
+	var encoder *BinaryCoder
 	chkId := 0
-	for i := 0; i < len(filebytes); i += CHUNKSIZE {
-		var encoder *BinaryCoder
 
+	for i := 0; i < len(filebytes); i += CHUNKSIZE {
+		fmt.Printf("Send Chunk %d\n", chkId)
 		if i+CHUNKSIZE > len(filebytes) {
 			fmt.Printf("Last chunk\n")
 			chkId = END_CHUNK
@@ -126,60 +132,93 @@ func sendFile(stream quic.Stream, filename string) {
 		if len(chunkBytes) < CHUNKSIZE {
 			chunkBytes = append(chunkBytes, make([]byte, CHUNKSIZE-len(chunkBytes))...)
 		}
-		packets := BytesToPackets(chunkBytes, PKTBITNUM)
 
-		encoder = InitBinaryCoder(len(packets), PKTBITNUM, RNGSEED)
+		if encode {
+			packets := BytesToPackets(chunkBytes, PKTBITNUM)
+			encoder = InitBinaryCoder(len(packets), PKTBITNUM, RNGSEED)
 
-		// Initialize encoder with random bit packets
-		for packetID := 0; packetID < encoder.NumSymbols; packetID++ {
-			coefficients := make([]byte, encoder.NumSymbols)
-			coefficients[packetID] = 1
-			encoder.ConsumePacket(coefficients, packets[packetID])
-		}
-
-		sent := 0
-
-		for s := 0; s < len(packets); s++ {
-			coefficient, packet := encoder.GetNewCodedPacket()
-			coefu64, origLenCoef := PackBinaryBytesToUint64s(coefficient)
-			pktu64, origLenPkt := PackBinaryBytesToUint64s(packet)
-
-			if (len(coefu64) != COEFNUM) || (origLenCoef != SYMBOLNUM) || (origLenPkt != PKTBITNUM) {
-				fmt.Errorf("Error encoding packet data: invalid length")
-				continue
+			// Initialize encoder with random bit packets
+			for packetID := 0; packetID < encoder.NumSymbols; packetID++ {
+				coefficients := make([]byte, encoder.NumSymbols)
+				coefficients[packetID] = 1
+				encoder.ConsumePacket(coefficients, packets[packetID])
 			}
 
-			xnc := XNC{
-				Type:        TYPE_XNC,
-				ChunkId:     chkId,
-				ChunkSize:   size,
-				Coefficient: coefu64,
-				Packet:      pktu64,
-			}
+			sent := 0
 
-			pkt, err := EncodeXNCPkt(xnc)
-			if err != nil {
-				fmt.Errorf("Error encoding packet data: %v", err)
-				continue
-			}
+			for s := 0; s < len(packets); s++ {
+				coefficient, packet := encoder.GetNewCodedPacket()
+				coefu64, origLenCoef := PackBinaryBytesToUint64s(coefficient)
+				pktu64, origLenPkt := PackBinaryBytesToUint64s(packet)
 
-			_, err = stream.Write(pkt)
-			if err != nil {
-				if err == io.EOF {
-					// The stream has been closed by the server, gracefully exit the loop.
-					fmt.Printf("Stream closed by the client, stopping write operations.\n")
-					break
-				} else if strings.Contains(err.Error(), "closed stream") {
-					fmt.Printf("Stream closed by the server, stopping write operations.\n")
-					continue
-				} else {
-					// Handle other errors that might not necessitate stopping.
-					fmt.Printf("Error writing to stream: %v\n", err)
+				if (len(coefu64) != COEFNUM) || (origLenCoef != SYMBOLNUM) || (origLenPkt != PKTBITNUM) {
+					fmt.Errorf("Error encoding packet data: invalid length")
 					continue
 				}
-			}
 
-			sent++
+				xnc := XNC{
+					Type:        TYPE_XNC_ENC,
+					ChunkId:     chkId,
+					ChunkSize:   size,
+					Coefficient: coefu64,
+					PktU64:      pktu64,
+				}
+
+				pkt, err := EncodeXNCPkt(xnc)
+				if err != nil {
+					fmt.Errorf("Error encoding packet data: %v", err)
+					continue
+				}
+
+				_, err = stream.Write(pkt)
+				if err != nil {
+					if err == io.EOF {
+						// The stream has been closed by the server, gracefully exit the loop.
+						fmt.Printf("Stream closed by the client, stopping write operations.\n")
+						break
+					} else if strings.Contains(err.Error(), "closed stream") {
+						fmt.Printf("Stream closed by the server, stopping write operations.\n")
+						continue
+					} else {
+						// Handle other errors that might not necessitate stopping.
+						fmt.Printf("Error writing to stream: %v\n", err)
+						continue
+					}
+				}
+
+				sent++
+			}
+		} else {
+			for i := 0; i < CHUNKSIZE; i += PKTBITNUM / 8 {
+				xnc := XNC{
+					Type:      TYPE_XNC_ORG,
+					ChunkId:   chkId,
+					ChunkSize: size,
+					PktByte:   chunkBytes[i : i+PKTBITNUM/8],
+				}
+
+				pkt, err := EncodeXNCPkt(xnc)
+				if err != nil {
+					fmt.Errorf("Error encoding packet data: %v", err)
+					continue
+				}
+
+				_, err = stream.Write(pkt)
+				if err != nil {
+					if err == io.EOF {
+						// The stream has been closed by the server, gracefully exit the loop.
+						fmt.Printf("Stream closed by the client, stopping write operations.\n")
+						break
+					} else if strings.Contains(err.Error(), "closed stream") {
+						fmt.Printf("Stream closed by the server, stopping write operations.\n")
+						continue
+					} else {
+						// Handle other errors that might not necessitate stopping.
+						fmt.Printf("Error writing to stream: %v\n", err)
+						continue
+					}
+				}
+			}
 		}
 
 		chkId++
@@ -192,13 +231,13 @@ func revieveFile(stream quic.Stream) {
 	var decoder *BinaryCoder
 
 	recieved := 0
-	buffer := make([]byte, FRAMESIZE)
+	buffer := make([]byte, FRAMESIZE_ENC)
 
 	// create a new buffer to store the incoming packets
 	for {
 		accu_recv := 0
 
-		for accu_recv < FRAMESIZE {
+		for accu_recv < FRAMESIZE_ENC {
 			n, err := stream.Read(buffer[accu_recv:])
 
 			if err != nil {
@@ -228,7 +267,7 @@ func revieveFile(stream quic.Stream) {
 		}
 
 		coefficient := UnpackUint64sToBinaryBytes(xnc.Coefficient, SYMBOLNUM)
-		pkt := UnpackUint64sToBinaryBytes(xnc.Packet, PKTBITNUM)
+		pkt := UnpackUint64sToBinaryBytes(xnc.PktU64, PKTBITNUM)
 
 		decoder.ConsumePacket(coefficient, pkt)
 

@@ -73,11 +73,11 @@ func TestWhole(t *testing.T) {
 			}
 
 			xncE := XNC{
-				Type:        TYPE_XNC,
+				Type:        TYPE_XNC_ENC,
 				ChunkId:     chkId,
 				ChunkSize:   size,
 				Coefficient: coefEu64,
-				Packet:      pktEu64,
+				PktU64:      pktEu64,
 			}
 
 			pktE, err := EncodeXNCPkt(xncE)
@@ -104,7 +104,7 @@ func TestWhole(t *testing.T) {
 			}
 
 			coefficientD := UnpackUint64sToBinaryBytes(xncD.Coefficient, SYMBOLNUM)
-			pktD := UnpackUint64sToBinaryBytes(xncD.Packet, PKTBITNUM)
+			pktD := UnpackUint64sToBinaryBytes(xncD.PktU64, PKTBITNUM)
 
 			if !bytes.Equal(coefficientE, coefficientD) {
 				t.Errorf("Failed to decode coefficients correctly.\nExpected: %x\nGot: %x", coefficientE, coefficientD)
@@ -188,28 +188,59 @@ func TestWhole(t *testing.T) {
 	}
 }
 
-func TestEncodeXNCPkt(t *testing.T) {
+func TestOriginXNCPkt(t *testing.T) {
 	xnc := XNC{
-		ChunkId:     1,
-		Type:        byte(TYPE_XNC),
-		ChunkSize:   4,
-		Coefficient: []uint64{1342493851, 1238124},
-		Packet:      make([]uint64, PKTNUM),
+		ChunkId:   1,
+		Type:      byte(TYPE_XNC_ORG),
+		ChunkSize: 4,
+		PktByte:   make([]byte, PKTBYTENUM),
 	}
 
-	for i := range xnc.Packet {
-		xnc.Packet[i] = uint64(i)
+	for i := range xnc.PktByte {
+		xnc.PktByte[i] = byte(i)
 	}
 
 	encode, err := EncodeXNCPkt(xnc)
 	if err != nil {
-		t.Errorf("Failed to encode xnc correctly.")
+		t.Errorf("Failed to encode xnc correctly: %v", err)
 		return
 	}
 
 	decode, err := DecodeXNCPkt(encode)
 	if err != nil {
-		t.Errorf("Failed to encode xnc correctly.")
+		t.Errorf("Failed to encode xnc correctly: %v", err)
+		return
+	}
+
+	if !XNCEqual(xnc, decode) {
+		t.Errorf("Failed to decode xnc correctly.\nExpected: %v\nGot: %v", xnc, decode)
+		return
+	}
+
+	t.Logf("## Successfully decoded Origin XNC packets\n")
+}
+func TestEncodeXNCPkt(t *testing.T) {
+	xnc := XNC{
+		ChunkId:     1,
+		Type:        byte(TYPE_XNC_ENC),
+		ChunkSize:   4,
+		Coefficient: []uint64{1342493851, 1238124},
+		PktU64:      make([]uint64, PKTU64NUM),
+	}
+
+	for i := range xnc.PktU64 {
+		xnc.PktU64[i] = uint64(i)
+	}
+
+	encode, err := EncodeXNCPkt(xnc)
+	if err != nil {
+		t.Errorf("Failed to encode xnc correctly: %v", err)
+		return
+	}
+
+	decode, err := DecodeXNCPkt(encode)
+	if err != nil {
+		t.Errorf("Failed to encode xnc correctly: %v", err)
 		return
 	}
 
@@ -297,7 +328,7 @@ func TestPacketToByte(t *testing.T) {
 
 func TestInit(t *testing.T) {
 	init := XNC_INIT{
-		Type:     byte(TYPE_INIT),
+		Type:     TYPE_INIT_ENC,
 		Len:      4,
 		Filename: "test",
 	}
@@ -329,7 +360,7 @@ func TestXNCToByte(t *testing.T) {
 		Type:        byte(3),
 		ChunkSize:   4,
 		Coefficient: []uint64{1, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-		Packet:      []uint64{135431, 51908357, 1324951, 1587324, 1587324, 1587324, 1587324, 1587324, 1587324, 1587324},
+		PktU64:      []uint64{135431, 51908357, 1324951, 1587324, 1587324, 1587324, 1587324, 1587324, 1587324, 1587324},
 	}
 
 	encode, err := EncodeXNCPkt(xnc)
@@ -363,8 +394,8 @@ func XNCEqual(a, b XNC) bool {
 		return false
 	}
 
-	for i := range a.Packet {
-		if a.Packet[i] != b.Packet[i] {
+	for i := range a.PktU64 {
+		if a.PktU64[i] != b.PktU64[i] {
 			return false
 		}
 	}

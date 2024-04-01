@@ -10,7 +10,7 @@ import (
 	"github.com/lucas-clemente/quic-go"
 )
 
-func Client(filename string) ([]byte, time.Duration, float64) {
+func Client(filename string, encode bool) ([]byte, time.Duration, float64) {
 
 	quicConf := &quic.Config{}
 	sess, err := quic.DialAddr("localhost:4242", &tls.Config{InsecureSkipVerify: true}, quicConf)
@@ -24,8 +24,20 @@ func Client(filename string) ([]byte, time.Duration, float64) {
 	}
 
 	fmt.Printf("filename len: %d\n", len(filename))
+
+	var initType byte
+	var frameSize int
+
+	if encode {
+		initType = TYPE_INIT_ENC
+		frameSize = FRAMESIZE_ENC
+	} else {
+		initType = TYPE_INIT_ORG
+		frameSize = FRAMESIZE_ORG
+	}
+
 	initpkt, err := EncodeInit(XNC_INIT{
-		Type:     TYPE_INIT,
+		Type:     initType,
 		Len:      len(filename),
 		Filename: filename,
 	})
@@ -42,18 +54,19 @@ func Client(filename string) ([]byte, time.Duration, float64) {
 	fmt.Printf("Sent init packet\n")
 
 	decoder := make(map[int]*BinaryCoder)
+	files := make(map[int][]byte)
 
 	recieved := 0
 	chunkNum := 0
-	buffer := make([]byte, FRAMESIZE)
+	buffer := make([]byte, frameSize)
 	recvfile := []byte{}
-
 	startTime := time.Now()
 	totalBytesRead := 0
+
 	for {
 		accu_recv := 0
 
-		for accu_recv < FRAMESIZE {
+		for accu_recv < frameSize {
 			n, err := stream.Read(buffer[accu_recv:])
 			if err != nil {
 				if err == io.EOF {
@@ -74,50 +87,62 @@ func Client(filename string) ([]byte, time.Duration, float64) {
 			continue
 		}
 
-		if decoder[xnc.ChunkId] == nil {
-			fmt.Printf("Start Recieve chunk %d\n", xnc.ChunkId)
-			// Assuming InitBinaryCoder, PKTBITNUM, and RNGSEED are correctly defined elsewhere.
-			decoder[xnc.ChunkId] = InitBinaryCoder(SYMBOLNUM, PKTBITNUM, RNGSEED)
-			chunkNum++
-		} else if decoder[xnc.ChunkId].IsFullyDecoded() {
-			fmt.Printf("Chunk %d is already fully decoded\n", xnc.ChunkId)
-			continue
-		}
-
-		coefficient := UnpackUint64sToBinaryBytes(xnc.Coefficient, SYMBOLNUM)
-		pkt := UnpackUint64sToBinaryBytes(xnc.Packet, PKTBITNUM)
-
-		decoder[xnc.ChunkId].ConsumePacket(coefficient, pkt)
-
 		recieved++
 
-		if decoder[xnc.ChunkId].IsFullyDecoded() {
-			fmt.Printf("## Received packets %v, Decode %d out of %d\n", recieved, decoder[xnc.ChunkId].GetNumDecoded(), decoder[xnc.ChunkId].NumSymbols)
+		if encode {
+			if decoder[xnc.ChunkId] == nil {
+				fmt.Printf("Start Recieve chunk %d\n", xnc.ChunkId)
+				// Assuming InitBinaryCoder, PKTBITNUM, and RNGSEED are correctly defined elsewhere.
+				decoder[xnc.ChunkId] = InitBinaryCoder(SYMBOLNUM, PKTBITNUM, RNGSEED)
+				chunkNum++
+			} else if decoder[xnc.ChunkId].IsFullyDecoded() {
+				fmt.Printf("Chunk %d is already fully decoded\n", xnc.ChunkId)
+				continue
+			}
 
-			fmt.Print("## File fully received\n")
+			coefficient := UnpackUint64sToBinaryBytes(xnc.Coefficient, SYMBOLNUM)
+			pkt := UnpackUint64sToBinaryBytes(xnc.PktU64, PKTBITNUM)
 
-			file := PacketsToBytes(decoder[xnc.ChunkId].PacketVector, PKTBITNUM, CHUNKSIZE*8)
-			file = file[:xnc.ChunkSize]
+			decoder[xnc.ChunkId].ConsumePacket(coefficient, pkt)
 
-			recvfile = append(recvfile, file...)
+			if decoder[xnc.ChunkId].IsFullyDecoded() {
+				fmt.Printf("## Received packets %v, Decode %d out of %d\n", recieved, decoder[xnc.ChunkId].GetNumDecoded(), decoder[xnc.ChunkId].NumSymbols)
 
-			if xnc.ChunkId == END_CHUNK {
-				stream.Context().Done()
+				fmt.Print("## File fully received\n")
 
-				fmt.Printf("## Last chunk recieved\n")
-				if err := os.WriteFile(filename, recvfile, 0644); err != nil {
-					fmt.Errorf("Failed to save file: %v\n", err)
+				file := PacketsToBytes(decoder[xnc.ChunkId].PacketVector, PKTBITNUM, CHUNKSIZE*8)
+				file = file[:xnc.ChunkSize]
+				recvfile = append(recvfile, file...)
 
-					duration := time.Since(startTime).Seconds()
-					kbps := float64(totalBytesRead*8) / duration / 1024
-					fmt.Printf("Received data at %.2f kbps\n", kbps)
-
-					return nil, sess.GetRtt(), kbps
+				if xnc.ChunkId == END_CHUNK {
+					fmt.Printf("## Last chunk recieved\n")
+					break
 				}
+			}
+		} else {
+			files[xnc.ChunkId] = append(files[xnc.ChunkId], xnc.PktByte...)
 
-				break
+			if len(files[xnc.ChunkId]) >= xnc.ChunkSize {
+				recvfile = append(recvfile, files[xnc.ChunkId][:xnc.ChunkSize]...)
+
+				if xnc.ChunkId == END_CHUNK {
+					fmt.Printf("## Last chunk recieved\n")
+					break
+				}
 			}
 		}
+	}
+
+	stream.Context().Done()
+
+	if err := os.WriteFile(filename, recvfile, 0644); err != nil {
+		fmt.Errorf("Failed to save file: %v\n", err)
+
+		duration := time.Since(startTime).Seconds()
+		kbps := float64(totalBytesRead*8) / duration / 1024
+		fmt.Printf("Received data at %.2f kbps\n", kbps)
+
+		return nil, sess.GetRtt(), kbps
 	}
 
 	duration := time.Since(startTime).Seconds()

@@ -20,7 +20,7 @@ func main() {
 	go qrlnc.Server(ctx, rootDir)
 	time.Sleep(1 * time.Second) // Wait for the server to initialize.
 
-	qrlnc.Client("test.m4s")
+	qrlnc.Client("test.m4s", true)
 
 	// wait for the server to finish
 	time.Sleep(2 * time.Second)

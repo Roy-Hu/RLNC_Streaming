@@ -479,7 +479,7 @@ func GetURL(requrl string, isByteRangeMPD bool, startRange int, endRange int, qu
 
 		fmt.Printf("Requesting %v\n", fileName)
 
-		bytes, rtt, _ := qrlnc.Client(fileName)
+		bytes, rtt, _ := qrlnc.Client(fileName, false)
 
 		return bytes, rtt, "quic-xnc"
 	} else {
@@ -581,7 +581,7 @@ func GetFile(currentURL string, fileBaseURL string, fileLocation string, isByteR
 
 	//request the URL with GET
 	if quicBool {
-		myBytes, rtt, kbpsFloat = qrlnc.Client(fileBaseURL)
+		myBytes, rtt, kbpsFloat = qrlnc.Client(fileBaseURL, true)
 		protocol = "quic-xnc"
 	} else {
 		body, rtt, protocol, _ = getURLBody(urlHeaderString, isByteRangeMPD, startRange, endRange, quicBool, debugFile, debugLog, useTestbedBool, false)
