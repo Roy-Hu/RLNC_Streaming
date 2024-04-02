@@ -27,8 +27,10 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"path/filepath"
 
+	"github.com/comp529/qrlnc"
 	"github.com/uccmisl/godash/logging"
 	"github.com/uccmisl/godash/utils"
 
@@ -43,7 +45,6 @@ import (
 	"time"
 
 	"github.com/uccmisl/godash/P2Pconsul"
-	"github.com/uccmisl/godash/P2Pconsul/HelperFunctions"
 	glob "github.com/uccmisl/godash/global"
 
 	"github.com/cavaliercoder/grab"
@@ -463,25 +464,42 @@ func GetURLByteRangeBody(url string, startRange int, endRange int) (io.ReadClose
 
 // GetURL :
 // * return the content of the body of the url
-func GetURL(url string, isByteRangeMPD bool, startRange int, endRange int, quicBool bool, debugFile string, debugLog bool, useTestbedBool bool) ([]byte, time.Duration, string) {
+func GetURL(requrl string, isByteRangeMPD bool, startRange int, endRange int, quicBool bool, debugFile string, debugLog bool, useTestbedBool bool) ([]byte, time.Duration, string) {
 
 	// get the response body and rtt for this url
-	responseBody, rtt, protocol, _ := getURLBody(url, isByteRangeMPD, startRange, endRange, quicBool, debugFile, debugLog, useTestbedBool, false)
+	if quicBool {
+		u, err := url.Parse(requrl)
+		if err != nil {
+			fmt.Println("Error parsing URL:", err)
+			return nil, 0, ""
+		}
 
-	// Lets read from the http stream and not create a file to store the body
-	body, err := ioutil.ReadAll(responseBody)
-	//bodyString := string(body)
-	if err != nil {
-		fmt.Println("Unable to read from url")
-		// stop the app
-		utils.StopApp()
+		// Use the path package to extract the file name.
+		fileName := path.Base(u.Path)
+
+		fmt.Printf("Requesting %v\n", fileName)
+
+		bytes, rtt, _ := qrlnc.Client(fileName, false)
+
+		return bytes, rtt, "quic-xnc"
+	} else {
+		responseBody, rtt, protocol, _ := getURLBody(requrl, isByteRangeMPD, startRange, endRange, quicBool, debugFile, debugLog, useTestbedBool, false)
+
+		// Lets read from the http stream and not create a file to store the body
+		body, err := ioutil.ReadAll(responseBody)
+		//bodyString := string(body)
+		if err != nil {
+			fmt.Println("Unable to read from url")
+			// stop the app
+			utils.StopApp()
+		}
+
+		// close the responseBody
+		responseBody.Close()
+
+		// return the body of the responseBody
+		return body, rtt, protocol
 	}
-
-	// close the responseBody
-	responseBody.Close()
-
-	// return the body of the responseBody
-	return body, rtt, protocol
 }
 
 // GetRepresentationBaseURL :
@@ -554,14 +572,26 @@ func GetFile(currentURL string, fileBaseURL string, fileLocation string, isByteR
 		createFile = fileLocation + "/" + base
 	}
 
-	//request the URL with GET
-	body, rtt, protocol, _ := getURLBody(urlHeaderString, isByteRangeMPD, startRange, endRange, quicBool, debugFile, debugLog, useTestbedBool, false)
+	var rtt time.Duration
+	var protocol string
+	var myBytes []byte
+	var body io.ReadCloser
 
-	// read from the buffer
-	var buf bytes.Buffer
-	// duplicate the buffer incase I need it later
-	tee := io.TeeReader(body, &buf)
-	myBytes, _ := ioutil.ReadAll(tee)
+	var kbpsFloat float64
+
+	//request the URL with GET
+	if quicBool {
+		myBytes, rtt, kbpsFloat = qrlnc.Client(fileBaseURL, true)
+		protocol = "quic-xnc"
+	} else {
+		body, rtt, protocol, _ = getURLBody(urlHeaderString, isByteRangeMPD, startRange, endRange, quicBool, debugFile, debugLog, useTestbedBool, false)
+		// read from the buffer
+		var buf bytes.Buffer
+		// duplicate the buffer incase I need it later
+		tee := io.TeeReader(body, &buf)
+		myBytes, _ = ioutil.ReadAll(tee)
+	}
+
 	// get the size of this segment
 	size := strconv.FormatInt(int64(len(myBytes)), 10)
 	segSize, err := strconv.Atoi(size)
@@ -570,76 +600,89 @@ func GetFile(currentURL string, fileBaseURL string, fileLocation string, isByteR
 		utils.StopApp()
 	}
 
-	// get the P.1203 segSize (less the header)
-	withoutHeaderVal := int64(segSize)
+	if !quicBool {
+		// get the P.1203 segSize (less the header)
+		withoutHeaderVal := int64(segSize)
 
-	// lets see if we can find this {0x00, 0x00, 0x00, 0x04, 0x68, 0xEF, 0xBC, 0x80}
-	// in our segment
-	src := []byte("0000000468EFBC80")
-	dst := make([]byte, hex.DecodedLen(len(src)))
-	n, err := hex.Decode(dst, src)
-	if err != nil {
-		log.Fatal(err)
+		// lets see if we can find this {0x00, 0x00, 0x00, 0x04, 0x68, 0xEF, 0xBC, 0x80}
+		// in our segment
+		src := []byte("0000000468EFBC80")
+		dst := make([]byte, hex.DecodedLen(len(src)))
+		n, err := hex.Decode(dst, src)
+		if err != nil {
+			log.Fatal(err)
+		}
+		// see if this value is in myBytes
+		if bytes.Contains(myBytes, dst[:n]) {
+			// get the index for our dst value
+			mdatValueInt := bytes.Index(myBytes, dst[:n])
+			// add 8 bits for header
+			mdatValueInt += 8
+			// get the file byte size less the header
+			withoutHeaderVal = int64(segSize) - int64(mdatValueInt)
+		}
+		// determine the bitrate based on segment duration - multiply by 8 and divide by segment duration
+		kbpsInt := ((withoutHeaderVal * 8) / int64(segmentDuration))
+		// convert kbps to a float
+		kbpsFloat = float64(kbpsInt) / glob.Conversion1024
+		// convert to sn easier string value
+		kbpsFloatStringVal := fmt.Sprintf("%3f", kbpsFloat)
+		// log this value
+		logging.DebugPrint(glob.DebugFile, debugLog, "DEBUG: ", "HTTP body size is "+kbpsFloatStringVal)
 	}
-	// see if this value is in myBytes
-	if bytes.Contains(myBytes, dst[:n]) {
-		// get the index for our dst value
-		mdatValueInt := bytes.Index(myBytes, dst[:n])
-		// add 8 bits for header
-		mdatValueInt += 8
-		// get the file byte size less the header
-		withoutHeaderVal = int64(segSize) - int64(mdatValueInt)
-	}
-	// determine the bitrate based on segment duration - multiply by 8 and divide by segment duration
-	kbpsInt := ((withoutHeaderVal * 8) / int64(segmentDuration))
-	// convert kbps to a float
-	kbpsFloat := float64(kbpsInt) / glob.Conversion1024
-	// convert to sn easier string value
-	kbpsFloatStringVal := fmt.Sprintf("%3f", kbpsFloat)
-	// log this value
-	logging.DebugPrint(glob.DebugFile, debugLog, "DEBUG: ", "HTTP body size is "+kbpsFloatStringVal)
 
 	// if we want to save the streamed files
 	if saveFilesBool {
+		if quicBool {
+			err = os.WriteFile(createFile, myBytes, 0644)
+			if err != nil {
+				fmt.Println("*** " + createFile + " cannot be saved ***")
+				// stop the app
+				utils.StopApp()
+			}
+		} else {
 
-		// Restore the io.ReadCloser to it's original state, if needed
-		body = ioutil.NopCloser(bytes.NewBuffer(myBytes))
+			// Restore the io.ReadCloser to it's original state, if needed
+			body = ioutil.NopCloser(bytes.NewBuffer(myBytes))
 
-		// save the file to the provided file location
-		// write if not existing, append if existing
-		out, err := os.OpenFile(createFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err != nil {
-			fmt.Println("*** " + createFile + " cannot be downloaded and written/append to file ***")
-			utils.StopApp()
-		}
-		// save the file to the provided file location
-		// out, err := os.Create(createFile)
-		// if err != nil {
-		// 	fmt.Println("*** " + createFile + " cannot be downloaded and written to file ***")
-		// 	// stop the app
-		// 	utils.StopApp()
-		// }
-		// defer out.Close()
+			// save the file to the provided file location
+			// write if not existing, append if existing
+			out, err := os.OpenFile(createFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if err != nil {
+				fmt.Println("*** " + createFile + " cannot be downloaded and written/append to file ***")
+				utils.StopApp()
+			}
+			// save the file to the provided file location
+			// out, err := os.Create(createFile)
+			// if err != nil {
+			// 	fmt.Println("*** " + createFile + " cannot be downloaded and written to file ***")
+			// 	// stop the app
+			// 	utils.StopApp()
+			// }
+			// defer out.Close()
 
-		// Write the body to file
-		_, err = io.Copy(out, body)
-		if err != nil {
-			fmt.Println("*** " + createFile + " cannot be saved ***")
-			// stop the app
-			utils.StopApp()
+			// Write the body to file
+			_, err = io.Copy(out, body)
+			if err != nil {
+				fmt.Println("*** " + createFile + " cannot be saved ***")
+				// stop the app
+				utils.StopApp()
+			}
 		}
 	}
 
-	logging.DebugPrint(debugFile, debugLog, "DEBUG: ", "Before consul update")
-	//check if mode is collaborative or standard
-	if Noden.ClientName != "off" && Noden.ClientName != "" {
-		logging.DebugPrint(debugFile, debugLog, "DEBUG: consul client - ", Noden.ClientName)
-		Noden.UpdateConsul(HelperFunctions.HashSha(urlHeaderString))
-	}
-	logging.DebugPrint(debugFile, debugLog, "DEBUG: ", "After consul update")
+	// logging.DebugPrint(debugFile, debugLog, "DEBUG: ", "Before consul update")
+	// //check if mode is collaborative or standard
+	// if Noden.ClientName != "off" && Noden.ClientName != "" {
+	// 	logging.DebugPrint(debugFile, debugLog, "DEBUG: consul client - ", Noden.ClientName)
+	// 	Noden.UpdateConsul(HelperFunctions.HashSha(urlHeaderString))
+	// }
+	// logging.DebugPrint(debugFile, debugLog, "DEBUG: ", "After consul update")
 
 	// close the body connection
-	body.Close()
+	if !quicBool {
+		body.Close()
+	}
 
 	return rtt, segSize, protocol, createFile, kbpsFloat
 }

@@ -2,9 +2,9 @@
 
 ## TODO
 
-- Enabling XNC in MPQUIC, please check 4.3 in CellFusion: Multipath Vehicle-to-Cloud Video Streaming with Network Coding in the Wild for implementation
-
-- Test XNC in MPQUIC
+- RLNC BinaryCoder.PacketVector should be []Frame (define in mp-quic/internal/wire) for encoding QUIC packet
+- Test RLNC on QUIC packet, make sure that even if some packets are lost, data can still be recovered at the receiver side
+- Enabling RLNC in QUIC, please check 4.3 in CellFusion: Multipath Vehicle-to-Cloud Video Streaming with Network Coding in the Wild for implementation
 
 ## Setup
 

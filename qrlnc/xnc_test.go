@@ -2,28 +2,285 @@ package qrlnc
 
 import (
 	"bytes"
-	"context"
-	"crypto/tls"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"testing"
-	"time"
-
-	"github.com/lucas-clemente/quic-go"
 )
 
-var encoder *BinaryCoder
-var decoder *BinaryCoder
+func TestWhole(t *testing.T) {
 
-func min(a, b int) int {
-	if a < b {
-		return a
+	t.Log("## TestWhole")
+	t.Logf("SYMBOLNUM %d", SYMBOLNUM)
+	t.Logf("COEFNUM %d", COEFNUM)
+
+	file, err := os.Open("test.m4s")
+	if err != nil {
+		t.Errorf("Error opening file: %v", err)
+		return
 	}
-	return b
+	defer file.Close() // Ensure the file is closed after reading
+
+	filebytes, err := io.ReadAll(file)
+	if err != nil {
+		t.Errorf("Error reading file: %v", err)
+		return
+	}
+	fmt.Printf("Read %d bytes from file\n", len(filebytes))
+
+	fmt.Printf("Chunk num %d\n", len(filebytes)/CHUNKSIZE)
+
+	chkId := 0
+	for i := 0; i < len(filebytes); i += CHUNKSIZE {
+		var encoder *BinaryCoder
+		var decoder *BinaryCoder
+
+		end := Min(i+CHUNKSIZE, i+len(filebytes[i:]))
+		chunkBytes := filebytes[i:end]
+
+		size := end - i
+
+		// // padding chunkbytes to chunk size
+		if len(chunkBytes) < CHUNKSIZE {
+			chunkBytes = append(chunkBytes, make([]byte, CHUNKSIZE-len(chunkBytes))...)
+		}
+
+		packets := BytesToPackets(chunkBytes, PKTBITNUM)
+
+		encoder = InitBinaryCoder(len(packets), PKTBITNUM, RNGSEED)
+
+		fmt.Println("Number of symbols:", encoder.NumSymbols)
+		fmt.Println("Number of bit per packet:", encoder.NumBitPacket)
+
+		// Initialize encoder with random bit packets
+		for packetID := 0; packetID < encoder.NumSymbols; packetID++ {
+			coefficients := make([]byte, encoder.NumSymbols)
+			coefficients[packetID] = 1
+			encoder.ConsumePacket(coefficients, packets[packetID])
+		}
+
+		recieved := 0
+
+		for {
+			coefficientE, packet := encoder.GetNewCodedPacket()
+			coefEu64, origLenCoef := PackBinaryBytesToUint64s(coefficientE)
+			pktEu64, origLenPkt := PackBinaryBytesToUint64s(packet)
+
+			if (len(coefEu64) != COEFNUM) || (origLenCoef != SYMBOLNUM) || (origLenPkt != PKTBITNUM) {
+				t.Errorf("Error encoding packet data: invalid length")
+				return
+			}
+
+			xncE := XNC{
+				Type:        TYPE_XNC_ENC,
+				ChunkId:     chkId,
+				ChunkSize:   size,
+				Coefficient: coefEu64,
+				PktU64:      pktEu64,
+			}
+
+			pktE, err := EncodeXNCPkt(xncE)
+			if err != nil {
+				t.Errorf("Error encoding packet data: %v", err)
+				return
+			}
+
+			xncD, err := DecodeXNCPkt(pktE)
+
+			if !XNCEqual(xncE, xncD) {
+				t.Errorf("Failed to decode xnc correctly.\nExpected: %v\nGot: %v", xncE, xncD)
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Error decoding packet data: %v", err)
+				return
+				// Decide on error handling strategy, possibly continue to the next stream.
+			}
+
+			if decoder == nil {
+				decoder = InitBinaryCoder(SYMBOLNUM, PKTBITNUM, 1)
+			}
+
+			coefficientD := UnpackUint64sToBinaryBytes(xncD.Coefficient, SYMBOLNUM)
+			pktD := UnpackUint64sToBinaryBytes(xncD.PktU64, PKTBITNUM)
+
+			if !bytes.Equal(coefficientE, coefficientD) {
+				t.Errorf("Failed to decode coefficients correctly.\nExpected: %x\nGot: %x", coefficientE, coefficientD)
+				return
+			}
+
+			decoder.ConsumePacket(coefficientD, pktD)
+
+			recieved++
+
+			// t.Logf("## Received packets %v, Decode %d out of %d\n", recieved, decoder.GetNumDecoded(), decoder.NumSymbols)
+
+			if decoder.IsFullyDecoded() {
+				t.Logf("\n# Finished Decode for chunk %d!!!", chkId)
+
+				if equal(decoder.PacketVector, encoder.PacketVector) {
+					t.Logf("## Successfully decoded all packets at the receiver after %d messages.", recieved)
+				} else {
+					t.Error("## Error, decoded packet vectors are not equal!!!")
+					return
+				}
+
+				recvfile := PacketsToBytes(decoder.PacketVector, decoder.NumBitPacket, CHUNKSIZE*8)
+				recvfile = recvfile[:xncD.ChunkSize]
+
+				if !bytes.Equal(recvfile, filebytes[i:end]) {
+					t.Errorf("## recvfile and filebytes do not match.")
+					return
+				}
+
+				recvFilename := fmt.Sprintf("recv_%d.m4s", chkId)
+				if err := os.WriteFile(recvFilename, recvfile, 0644); err != nil {
+					t.Errorf("Failed to save file: %v\n", err)
+					return
+				}
+
+				break
+			}
+		}
+
+		chkId++
+	}
+
+	// combine all the chunks
+	recvfile := []byte{}
+	for i := 0; i < chkId; i++ {
+		filename := fmt.Sprintf("recv_%d.m4s", i)
+		chunk, err := ioutil.ReadFile(filename)
+		if err != nil {
+			t.Errorf("Error opening received file: %v", err)
+			return
+		}
+		recvfile = append(recvfile, chunk...)
+	}
+
+	if err := os.WriteFile("recv.m4s", recvfile, 0644); err != nil {
+		t.Errorf("Failed to save file: %v\n", err)
+		return
+	}
+
+	original, err := ioutil.ReadFile("test.m4s")
+	if err != nil {
+		t.Errorf("Error opening original file: %v", err)
+		return
+	}
+
+	received, err := ioutil.ReadFile("recv.m4s")
+	if err != nil {
+		t.Errorf("Error opening received file: %v", err)
+		return
+	}
+
+	t.Logf("## Original file size: %d bytes", len(original))
+	t.Logf("## Received file size: %d bytes", len(received))
+
+	if !bytes.Equal(original, received) {
+		t.Errorf("## Files do not match.")
+		return
+	} else {
+		t.Logf("## Successfully decoded all packets at the receiver.")
+	}
 }
+
+func TestOriginXNCPkt(t *testing.T) {
+	xnc := XNC{
+		ChunkId:   1,
+		Type:      byte(TYPE_XNC_ORG),
+		ChunkSize: 4,
+		PktByte:   make([]byte, PKTBYTENUM),
+	}
+
+	for i := range xnc.PktByte {
+		xnc.PktByte[i] = byte(i)
+	}
+
+	encode, err := EncodeXNCPkt(xnc)
+	if err != nil {
+		t.Errorf("Failed to encode xnc correctly: %v", err)
+		return
+	}
+
+	decode, err := DecodeXNCPkt(encode)
+	if err != nil {
+		t.Errorf("Failed to encode xnc correctly: %v", err)
+		return
+	}
+
+	if !XNCEqual(xnc, decode) {
+		t.Errorf("Failed to decode xnc correctly.\nExpected: %v\nGot: %v", xnc, decode)
+		return
+	}
+
+	t.Logf("## Successfully decoded Origin XNC packets\n")
+}
+func TestEncodeXNCPkt(t *testing.T) {
+	xnc := XNC{
+		ChunkId:     1,
+		Type:        byte(TYPE_XNC_ENC),
+		ChunkSize:   4,
+		Coefficient: []uint64{1342493851, 1238124},
+		PktU64:      make([]uint64, PKTU64NUM),
+	}
+
+	for i := range xnc.PktU64 {
+		xnc.PktU64[i] = uint64(i)
+	}
+
+	encode, err := EncodeXNCPkt(xnc)
+	if err != nil {
+		t.Errorf("Failed to encode xnc correctly: %v", err)
+		return
+	}
+
+	decode, err := DecodeXNCPkt(encode)
+	if err != nil {
+		t.Errorf("Failed to encode xnc correctly: %v", err)
+		return
+	}
+
+	if !XNCEqual(xnc, decode) {
+		t.Errorf("Failed to decode xnc correctly.\nExpected: %v\nGot: %v", xnc, decode)
+		return
+	}
+
+	t.Logf("## Successfully decoded XNC packets\n")
+}
+
+func TesTBinaryBtyeToUint64(t *testing.T) {
+	// Initialize a test case with a slice of bytes.
+	// Ensure the length is a multiple of 8 for straightforward testing.
+	const length = 210 // Specify the desired length here.
+	originalBinaryBytes := make([]byte, length)
+
+	// Fill the slice with a simple pattern of 0x01 and 0x00 alternately.
+	for i := 0; i < length; i++ {
+		if i%2 == 0 || i%5 == 0 {
+			originalBinaryBytes[i] = 0x01
+		} else {
+			originalBinaryBytes[i] = 0x00
+		}
+	}
+
+	// Convert the bytes to uint64s
+	uint64s, origLen := PackBinaryBytesToUint64s(originalBinaryBytes)
+
+	// Convert back to bytes
+	convertedBytes := UnpackUint64sToBinaryBytes(uint64s, origLen)
+
+	// Compare the original byte slice with the converted byte slice
+	if !bytes.Equal(originalBinaryBytes, convertedBytes) {
+		t.Errorf("Conversion failed. Original: %x, Converted: %x", originalBinaryBytes, convertedBytes)
+	}
+}
+
 func TestPacketToByte(t *testing.T) {
-	file, err := os.Open("pic.jpg")
+	file, err := os.Open("test.m4s")
 	if err != nil {
 		fmt.Println("Error opening file:", err)
 		return
@@ -37,279 +294,111 @@ func TestPacketToByte(t *testing.T) {
 	}
 
 	fmt.Printf("Read %d bytes from file\n", len(byts))
-	encode := bytesToPackets(byts, pktNumBit)
-	decode := packetsToBytes(encode, pktNumBit, len(byts)*8)
+	encode := BytesToPackets(byts, PKTBITNUM)
+	decode := PacketsToBytes(encode, PKTBITNUM, len(byts)*8)
 
 	if bytes.Equal(decode, byts) {
 		t.Logf("## Successfully decoded all packets at the receiver after messages.")
 	} else {
-		t.Errorf("Failed to decode all packets correctly.\nExpected: %x\nGot: %x", byts, decode)
+		t.Errorf("Failed to decode all packets correctly.\nExpected: %d\nGot: %d", len(byts), len(decode))
 	}
 
-}
-func TestXNCEncodingDecoding(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel() // Ensure cancellation at the end of the test
-
-	// Start the server in a goroutine
-	go server(ctx)
-
-	// Allow some time for the server to initialize
-	time.Sleep(1 * time.Second)
-
-	// Run the client to send the image
-	client("pic.jpg")
-
-	// compare pic.jpg and pic_recv.jpg
-	file, err := os.Open("pic.jpg")
+	if err := os.WriteFile("recv.m4s", decode, 0644); err != nil {
+		t.Errorf("Failed to save file: %v\n", err)
+	}
+	original, err := ioutil.ReadFile("test.m4s")
 	if err != nil {
-		fmt.Println("Error opening file:", err)
-		return
+		t.Logf("Error opening original file: %v", err)
 	}
-	defer file.Close() // Ensure the file is closed after reading
 
-	byts, err := io.ReadAll(file)
+	received, err := ioutil.ReadFile("recv.m4s")
 	if err != nil {
-		fmt.Println("Error reading file:", err)
-		return
+		t.Logf("Error opening received file: %v", err)
 	}
 
-	fileRecv, err := os.Open("pic_recv.jpg")
-	if err != nil {
-		fmt.Println("Error opening file:", err)
-		return
-	}
-	defer fileRecv.Close() // Ensure the file is closed after reading
+	t.Logf("## Original file size: %d bytes", len(original))
+	t.Logf("## Received file size: %d bytes", len(received))
 
-	bytsRecv, err := io.ReadAll(fileRecv)
-	if err != nil {
-		fmt.Println("Error reading file:", err)
-		return
-	}
-
-	t.Logf("## Original file size: %d bytes", len(byts))
-	t.Logf("## Received file size: %d bytes", len(bytsRecv))
-
-	if bytes.Equal(byts, bytsRecv) {
-		t.Logf("## Successfully decoded all packets at the receiver after messages.")
+	if !bytes.Equal(original, received) {
+		t.Errorf("## Files do not match.")
 	} else {
-		t.Errorf("## Failed to decode all packets at the receiver after messages.")
+		t.Logf("## Successfully decoded all packets at the receiver.")
 	}
 }
 
-func generateTLSConfig() *tls.Config {
-	cert, err := tls.LoadX509KeyPair("../godash/http/certs/cert.pem", "../godash/http/certs/key.pem")
-	if err != nil {
-		fmt.Printf("TLS config err: %v", err)
-
-		return nil
+func TestInit(t *testing.T) {
+	init := XNC_INIT{
+		Type:     TYPE_INIT_ENC,
+		Len:      4,
+		Filename: "test",
 	}
-	return &tls.Config{
-		Certificates: []tls.Certificate{cert},
+
+	encode, err := EncodeInit(init)
+	if err != nil {
+		t.Errorf("Error encode xnc: %v", err)
+		return
+	}
+	decode, err := DecodeInit(encode)
+	if err != nil {
+		t.Errorf("Error decode xnc: %v", err)
+		return
+	}
+
+	if init.Type != decode.Type {
+		t.Errorf("Failed to decode xnc correctly.\nExpected: %v\nGot: %v", init.Type, decode.Type)
+	}
+	if init.Len != decode.Len {
+		t.Errorf("Failed to decode xnc correctly.\nExpected: %v\nGot: %v", init.Len, decode.Len)
+	}
+	if init.Filename != decode.Filename {
+		t.Errorf("Failed to decode xnc correctly.\nExpected: %v\nGot: %v", init.Filename, decode.Filename)
 	}
 }
-
-func client(filename string) {
-	quicConf := &quic.Config{}
-	session, err := quic.DialAddr("localhost:4242", &tls.Config{InsecureSkipVerify: true}, quicConf)
-	if err != nil {
-		panic(err)
-	}
-	stream, err := session.OpenStreamSync()
-	if err != nil {
-		panic(err)
+func TestXNCToByte(t *testing.T) {
+	xnc := XNC{
+		ChunkId:     1,
+		Type:        byte(3),
+		ChunkSize:   4,
+		Coefficient: []uint64{1, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		PktU64:      []uint64{135431, 51908357, 1324951, 1587324, 1587324, 1587324, 1587324, 1587324, 1587324, 1587324},
 	}
 
-	file, err := os.Open(filename)
+	encode, err := EncodeXNCPkt(xnc)
 	if err != nil {
-		fmt.Println("Error opening file:", err)
+		fmt.Println("Error encode xnc:", err)
 		return
 	}
-	defer file.Close() // Ensure the file is closed after reading
-
-	bytes, err := io.ReadAll(file)
+	decode, err := DecodeXNCPkt(encode)
 	if err != nil {
-		fmt.Println("Error reading file:", err)
+		fmt.Println("Error decode xnc:", err)
 		return
 	}
 
-	fmt.Printf("Read %d bytes from file\n", len(bytes))
-	packets := bytesToPackets(bytes, pktNumBit)
-
-	numSymbols := len(packets)
-
-	encoder = InitBinaryCoder(numSymbols, pktNumBit, rngSeed)
-
-	fmt.Println("Number of symbols:", encoder.numSymbols)
-	fmt.Println("Number of bit per packet:", encoder.numBitPacket)
-
-	// Initialize encoder with random bit packets
-	for packetID := 0; packetID < encoder.numSymbols; packetID++ {
-		coefficients := make([]int, encoder.numSymbols)
-		coefficients[packetID] = 1
-		encoder.consumePacket(coefficients, packets[packetID])
+	if !XNCEqual(xnc, decode) {
+		t.Errorf("Failed to decode xnc correctly.\nExpected: %v\nGot: %v", xnc, decode)
 	}
 
-	for {
-		coefficient, packet := encoder.getNewCodedPacket()
-
-		xncPkt := XNC{
-			BitSize:     len(bytes) * 8,
-			NumSymbols:  encoder.numSymbols,
-			Coefficient: coefficient,
-			Packet:      packet,
-		}
-
-		encodedPkt, err := encodePacketDataToByte(xncPkt)
-
-		if err != nil {
-			fmt.Println("Error encoding packet data:", err)
-			return
-		}
-
-		_, err = stream.Write(encodedPkt)
-		if err != nil {
-			panic(err)
-		}
-
-		buf := make([]byte, 4)
-		_, err = stream.Read(buf)
-		if err != nil {
-			if err == io.EOF {
-				// Handle end of stream; this is expected when the other side closes the stream.
-				fmt.Println("Stream closed by server")
-				break // Exit reading loop gracefully
-			} else {
-				panic(err) // Panic or handle other errors differently
-			}
-		}
-
-		fmt.Printf("Received %v from server\n", string(buf))
-
-		if string(buf) == "END" {
-			fmt.Printf("Received END from server\n")
-		}
-	}
 }
 
-func server(ctx context.Context) {
-	quicConf := &quic.Config{}
-	tlsConf := generateTLSConfig()
-	if tlsConf == nil {
-		return
+func XNCEqual(a, b XNC) bool {
+	if a.ChunkId != b.ChunkId {
+		return false
+	}
+	if a.Type != b.Type {
+		return false
+	}
+	if a.ChunkSize != b.ChunkSize {
+		return false
+	}
+	if !bytes.Equal(UnpackUint64sToBinaryBytes(a.Coefficient, len(a.Coefficient)), UnpackUint64sToBinaryBytes(b.Coefficient, len(b.Coefficient))) {
+		return false
 	}
 
-	listener, err := quic.ListenAddr("localhost:4242", tlsConf, quicConf)
-	if err != nil {
-		fmt.Println("Failed to start server:", err)
-		return
-	}
-	defer listener.Close()
-
-	for {
-		select {
-		case <-ctx.Done():
-			fmt.Println("Server shutting down")
-			return
-		default:
-			sess, err := listener.Accept()
-			if err != nil {
-				fmt.Println("Failed to accept session:", err)
-				return
-			}
-			go handleSession(sess)
-		}
-	}
-}
-
-func handleSession(sess quic.Session) {
-	var first bool = true
-	recieved := 0
-
-	stream, err := sess.AcceptStream()
-	if err != nil {
-		if err == io.EOF {
-			// Gracefully handle session closure.
-			fmt.Println("Session closed by client.")
-			return
-		}
-		fmt.Printf("Error accepting stream: %v\n", err)
-		return
-	}
-	fmt.Println("New stream accepted.")
-
-	for {
-		var data XNC
-
-		buffer := make([]byte, 4096) // A 4KB buffer
-		n, err := stream.Read(buffer)
-		if err != nil {
-			if err == io.EOF {
-				// EOF indicates the client closed the stream. All data has been received.
-				fmt.Println("Stream closed by client")
-				break // Exit the loop.
-			}
-			// Handle other errors that might occur during reading.
-			fmt.Println("Error reading from stream:", err)
-			return // or handle the error appropriately
-		}
-
-		data, err = decodePacketDataToByte(buffer[:n])
-		if err != nil {
-			fmt.Println("Error decoding packet data:", err)
-			// Decide on error handling strategy, possibly continue to the next stream.
-		}
-
-		if first {
-			// Assuming InitBinaryCoder, pktNumBit, and rngSeed are correctly defined elsewhere.
-			decoder = InitBinaryCoder(data.NumSymbols, pktNumBit, 1)
-			first = false
-		}
-
-		decoder.consumePacket(data.Coefficient, data.Packet)
-
-		fmt.Printf("Received packets %v\n", recieved)
-
-		recieved++
-		// Send acknowledgment back to the client.
-
-		fmt.Printf("## Decode %d out of %d\n", decoder.getNumDecoded(), decoder.numSymbols)
-
-		if decoder.isFullyDecoded() {
-
-			img := packetsToBytes(decoder.packetVector, decoder.numBitPacket, data.BitSize)
-			filename := fmt.Sprintf("pic_recv.jpg")
-			if err := os.WriteFile(filename, img, 0644); err != nil {
-				fmt.Printf("Failed to save image: %v\n", err)
-				// Handle the error, such as notifying the client or logging.
-				continue // Or break, based on your error handling policy.
-			}
-
-			fmt.Printf("Image saved as %s\n", filename)
-
-			if _, err := stream.Write([]byte("END")); err != nil {
-				fmt.Printf("Error sending acknowledgment: %v\n", err)
-				// Decide on error handling strategy, possibly continue to the next stream.
-			}
-
-			// Reset or prepare for next image.
-			break
-		}
-
-		if _, err := stream.Write([]byte("ACK")); err != nil {
-			fmt.Printf("Error sending acknowledgment: %v\n", err)
-			// Decide on error handling strategy, possibly continue to the next stream.
+	for i := range a.PktU64 {
+		if a.PktU64[i] != b.PktU64[i] {
+			return false
 		}
 	}
 
-	// Properly close the stream after the loop
-	if err := stream.Close(); err != nil {
-		fmt.Printf("Error closing stream: %v\n", err)
-	}
-
-	time.Sleep(1 * time.Second)
-	// Close the session if no more streams will be accepted, depending on your application logic
-	if err := sess.Close(nil); err != nil {
-		fmt.Printf("Error closing session: %v\n", err)
-	}
+	return true
 }
