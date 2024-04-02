@@ -30,7 +30,7 @@ import (
 	"net/url"
 	"path/filepath"
 
-	"github.com/comp529/qrlnc"
+	"github.com/comp529/xnc"
 	"github.com/uccmisl/godash/logging"
 	"github.com/uccmisl/godash/utils"
 
@@ -479,7 +479,7 @@ func GetURL(requrl string, isByteRangeMPD bool, startRange int, endRange int, qu
 
 		fmt.Printf("Requesting %v\n", fileName)
 
-		bytes, rtt, _ := qrlnc.Client(fileName, false)
+		bytes, rtt, _ := xnc.Client(fileName, true)
 
 		return bytes, rtt, "quic-xnc"
 	} else {
@@ -581,7 +581,7 @@ func GetFile(currentURL string, fileBaseURL string, fileLocation string, isByteR
 
 	//request the URL with GET
 	if quicBool {
-		myBytes, rtt, kbpsFloat = qrlnc.Client(fileBaseURL, true)
+		myBytes, rtt, kbpsFloat = xnc.Client(fileBaseURL, true)
 		protocol = "quic-xnc"
 	} else {
 		body, rtt, protocol, _ = getURLBody(urlHeaderString, isByteRangeMPD, startRange, endRange, quicBool, debugFile, debugLog, useTestbedBool, false)
