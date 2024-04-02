@@ -1,6 +1,8 @@
 package matrix
 
 import (
+	"sync"
+
 	"github.com/cloud9-tools/go-galoisfield"
 	"github.com/itzmeanjan/kodr"
 )
@@ -26,6 +28,8 @@ func (d *DecoderState) clean_forward() {
 		boundary int = min(rows, cols)
 	)
 
+	var wg sync.WaitGroup
+
 	for i := 0; i < boundary; i++ {
 		if d.coeffs[i][i] == 0 {
 			non_zero_col := false
@@ -43,15 +47,11 @@ func (d *DecoderState) clean_forward() {
 
 			// row switching in coefficient matrix
 			{
-				tmp := d.coeffs[i]
-				d.coeffs[i] = d.coeffs[pivot]
-				d.coeffs[pivot] = tmp
+				d.coeffs[i], d.coeffs[pivot] = d.coeffs[pivot], d.coeffs[i]
 			}
 			// row switching in coded piece matrix
 			{
-				tmp := d.coded[i]
-				d.coded[i] = d.coded[pivot]
-				d.coded[pivot] = tmp
+				d.coded[i], d.coded[pivot] = d.coded[pivot], d.coded[i]
 			}
 		}
 
@@ -60,15 +60,20 @@ func (d *DecoderState) clean_forward() {
 				continue
 			}
 
-			quotient := d.field.Div(d.coeffs[j][i], d.coeffs[i][i])
-			for k := i; k < cols; k++ {
-				d.coeffs[j][k] = d.field.Add(d.coeffs[j][k], d.field.Mul(d.coeffs[i][k], quotient))
-			}
-
-			for k := 0; k < len(d.coded[0]); k++ {
-				d.coded[j][k] = d.field.Add(d.coded[j][k], d.field.Mul(d.coded[i][k], quotient))
-			}
+			wg.Add(1)
+			go func(j int) {
+				defer wg.Done()
+				quotient := d.field.Div(d.coeffs[j][i], d.coeffs[i][i])
+				for k := i; k < cols; k++ {
+					d.coeffs[j][k] = d.field.Add(d.coeffs[j][k], d.field.Mul(d.coeffs[i][k], quotient))
+				}
+				for k := 0; k < len(d.coded[0]); k++ {
+					d.coded[j][k] = d.field.Add(d.coded[j][k], d.field.Mul(d.coded[i][k], quotient))
+				}
+			}(j)
 		}
+
+		wg.Wait() // Wait for all goroutines to finish before moving to the next pivot
 	}
 }
 
@@ -79,26 +84,32 @@ func (d *DecoderState) clean_backward() {
 		boundary int = min(rows, cols)
 	)
 
+	var wg sync.WaitGroup
+
 	for i := boundary - 1; i >= 0; i-- {
 		if d.coeffs[i][i] == 0 {
 			continue
 		}
 
+		// Parallelizing row operations above the current pivot
 		for j := 0; j < i; j++ {
 			if d.coeffs[j][i] == 0 {
 				continue
 			}
 
-			quotient := d.field.Div(d.coeffs[j][i], d.coeffs[i][i])
-			for k := i; k < cols; k++ {
-				d.coeffs[j][k] = d.field.Add(d.coeffs[j][k], d.field.Mul(d.coeffs[i][k], quotient))
-			}
-
-			for k := 0; k < len(d.coded[0]); k++ {
-				d.coded[j][k] = d.field.Add(d.coded[j][k], d.field.Mul(d.coded[i][k], quotient))
-			}
-
+			wg.Add(1)
+			go func(j int) {
+				defer wg.Done()
+				quotient := d.field.Div(d.coeffs[j][i], d.coeffs[i][i])
+				for k := i; k < cols; k++ {
+					d.coeffs[j][k] = d.field.Add(d.coeffs[j][k], d.field.Mul(d.coeffs[i][k], quotient))
+				}
+				for k := 0; k < len(d.coded[0]); k++ {
+					d.coded[j][k] = d.field.Add(d.coded[j][k], d.field.Mul(d.coded[i][k], quotient))
+				}
+			}(j)
 		}
+		wg.Wait()
 
 		if d.coeffs[i][i] == 1 {
 			continue
@@ -106,17 +117,20 @@ func (d *DecoderState) clean_backward() {
 
 		inv := d.field.Div(1, d.coeffs[i][i])
 		d.coeffs[i][i] = 1
-		for j := i + 1; j < cols; j++ {
-			if d.coeffs[i][j] == 0 {
-				continue
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := i + 1; j < cols; j++ {
+				if d.coeffs[i][j] == 0 {
+					continue
+				}
+				d.coeffs[i][j] = d.field.Mul(d.coeffs[i][j], inv)
 			}
-
-			d.coeffs[i][j] = d.field.Mul(d.coeffs[i][j], inv)
-		}
-
-		for j := 0; j < len(d.coded[0]); j++ {
-			d.coded[i][j] = d.field.Mul(d.coded[i][j], inv)
-		}
+			for j := 0; j < len(d.coded[0]); j++ {
+				d.coded[i][j] = d.field.Mul(d.coded[i][j], inv)
+			}
+		}()
+		wg.Wait()
 	}
 }
 

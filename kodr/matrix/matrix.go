@@ -1,6 +1,9 @@
 package matrix
 
 import (
+	"runtime"
+	"sync"
+
 	"github.com/cloud9-tools/go-galoisfield"
 	"github.com/itzmeanjan/kodr"
 )
@@ -47,20 +50,35 @@ func (m *Matrix) Multiply(field *galoisfield.GF, with Matrix) (Matrix, error) {
 		return nil, kodr.ErrMatrixDimensionMismatch
 	}
 
-	mult := make([][]byte, m.Rows())
-	for i := 0; i < len(*m); i++ {
+	mult := make(Matrix, m.Rows())
+	for i := range mult {
 		mult[i] = make([]byte, with.Cols())
 	}
 
-	for i := 0; i < int(m.Rows()); i++ {
-		for j := 0; j < int(with.Cols()); j++ {
+	var wg sync.WaitGroup
+	tasks := make(chan int, m.Rows()) // Channel for row indices
 
-			for k := 0; k < int(m.Cols()); k++ {
-				mult[i][j] = field.Add(mult[i][j], field.Mul((*m)[i][k], with[k][j]))
+	// Start a fixed number of worker goroutines
+	for w := 0; w < runtime.NumCPU(); w++ {
+		go func() {
+			for i := range tasks {
+				for j := 0; j < int(with.Cols()); j++ {
+					for k := 0; k < int(m.Cols()); k++ {
+						mult[i][j] = field.Add(mult[i][j], field.Mul((*m)[i][k], with[k][j]))
+					}
+				}
+				wg.Done()
 			}
-
-		}
+		}()
 	}
+
+	// Distribute tasks
+	for i := 0; i < int(m.Rows()); i++ {
+		wg.Add(1)
+		tasks <- i
+	}
+	close(tasks) // Close channel to terminate workers after tasks are done
+	wg.Wait()    // Wait for all tasks to complete
 
 	return mult, nil
 }
