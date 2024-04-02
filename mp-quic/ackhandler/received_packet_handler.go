@@ -28,6 +28,7 @@ type receivedPacketHandler struct {
 	version protocol.VersionNumber
 
 	packets uint64
+	encodedpackets uint64
 }
 
 // NewReceivedPacketHandler creates a new receivedPacketHandler
@@ -43,13 +44,19 @@ func (h *receivedPacketHandler) GetStatistics() uint64 {
 	return h.packets
 }
 
-func (h *receivedPacketHandler) ReceivedPacket(packetNumber protocol.PacketNumber, shouldInstigateAck bool) error {
+func (h *receivedPacketHandler) ReceivedPacket(packetNumber protocol.PacketNumber, shouldInstigateAck bool, isEncoded bool) error {
+	//additional parameter for encoding status
+	
 	if packetNumber == 0 {
 		return errInvalidPacketNumber
 	}
 
 	// A new packet was received on that path and passes checks, so count it for stats
 	h.packets++
+
+	if isEncoded {
+		h.encodedPackets++
+	}
 
 	if packetNumber > h.largestObserved {
 		h.largestObserved = packetNumber
