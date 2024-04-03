@@ -11,6 +11,14 @@ type FullRLNCDecoder struct {
 	state                      *matrix.DecoderState
 }
 
+func (d *FullRLNCDecoder) GetRecv() uint {
+	return d.received
+}
+
+func (d *FullRLNCDecoder) GetExpt() uint {
+	return d.expected
+}
+
 // PieceLength - Returns piece length in bytes
 //
 // If no pieces are yet added to decoder state, then

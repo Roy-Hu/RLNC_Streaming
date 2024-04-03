@@ -8,11 +8,10 @@ import (
 )
 
 func main() {
-	rootDir := "/var/www/html/tos_4sec_full/4K_dataset/4_sec/x264/bbb/DASH_Files/full/"
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel() // Ensures the server goroutine is terminated.
 
-	xnc.Server(ctx, rootDir)
+	xnc.Server(ctx, xnc.RootDir)
 
 	fmt.Println("Server End")
 }

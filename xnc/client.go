@@ -63,9 +63,7 @@ func Client(filename string, encode bool) ([]byte, time.Duration, float64) {
 
 	var decoders []*full.FullRLNCDecoder
 
-	fin := false
-
-	for !fin {
+	for {
 		accu_recv := 0
 		pktE := make([]byte, frameSize)
 
@@ -81,28 +79,18 @@ func Client(filename string, encode bool) ([]byte, time.Duration, float64) {
 			} else {
 				accu_recv += n
 				totalBytesRead += n
-
-				if accu_recv == ENDSIZE {
-					id, err := DecodeEND(pktE[:accu_recv])
-					if err != nil || id == -1 {
-						continue
-					} else {
-						fmt.Printf("[Client] Received END packet\n")
-						fin = true
-						break
-					}
-				}
 			}
-		}
-
-		if fin {
-			break
 		}
 
 		xncD, err := DecodeXNCPkt(pktE)
 		if err != nil {
 			fmt.Printf("[Client] Error decoding packet data: %v", err)
 			return nil, sess.GetRtt(), 0
+		}
+
+		if xncD.Type == TYPE_END {
+			fmt.Printf("[Client] Received END packet\n")
+			break
 		}
 
 		if encode {
@@ -127,6 +115,8 @@ func Client(filename string, encode bool) ([]byte, time.Duration, float64) {
 					return nil, sess.GetRtt(), 0
 				}
 			}
+			// loss debug
+			// fmt.Printf("[Client] Chunk %d, recv %d, need %d\n", xncD.ChunkId, decoders[xncD.ChunkId].GetRecv(), decoders[xncD.ChunkId].GetExpt())
 
 			if decoders[xncD.ChunkId].IsDecoded() {
 				recvfile, err := GetFile(decoders[xncD.ChunkId])
@@ -137,6 +127,10 @@ func Client(filename string, encode bool) ([]byte, time.Duration, float64) {
 
 				rFile = append(rFile, recvfile[:xncD.ChunkSize]...)
 
+				if xncD.ChunkId == xncD.ChunkNum-1 {
+					fmt.Printf("[Client] Finished decoding file\n")
+					break
+				}
 			}
 		} else {
 			chunk = append(chunk, xncD.Piece...)
@@ -145,12 +139,12 @@ func Client(filename string, encode bool) ([]byte, time.Duration, float64) {
 
 				rFile = append(rFile, chunk[:xncD.ChunkSize]...)
 				chunk = make([]byte, 0, CHUNKSIZE)
-			}
-		}
 
-		if xncD.ChunkId == xncD.ChunkNum {
-			fmt.Printf("[Client] Finished decoding file\n")
-			fin = true
+				if xncD.ChunkId == xncD.ChunkNum-1 {
+					fmt.Printf("[Client] Finished decoding file\n")
+					break
+				}
+			}
 		}
 	}
 

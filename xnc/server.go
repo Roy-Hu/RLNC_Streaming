@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"time"
+
 	"github.com/itzmeanjan/kodr"
 	"github.com/itzmeanjan/kodr/full"
 	"github.com/lucas-clemente/quic-go"
@@ -183,12 +185,15 @@ func sendFile(stream quic.Stream, filename string, encode bool) {
 					continue
 				}
 			}
+			// loss debug
+			// fmt.Printf("[Server] Chunk %d, sent %d\n", i, s)
 		}
 	}
 
-	for i := 0; i < 1; i++ {
-		endpkt := EncodeEND(len(chunks) - 1)
+	for i := 0; i < 5; i++ {
+		endpkt := EncodeEND(len(chunks)-1, encode)
 		stream.Write(endpkt)
+		time.Sleep(5 * time.Millisecond)
 	}
 
 	fmt.Printf("[Server] Finished sending file\n")
