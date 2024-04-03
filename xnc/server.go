@@ -122,34 +122,47 @@ func sendFile(stream quic.Stream, filename string, encode bool) {
 	fmt.Printf("[Server] Split file into %v chunks\n", len(chunks))
 
 	var size int
-	var chunkId int
+	var pieces uint
+	if encode {
+		pieces = CODEDPIECECNT
+	} else {
+		pieces = PIECECNT
+	}
 
 	for i := 0; i < len(chunks); i++ {
 		if i == len(chunks)-1 {
 			size = len(filebytes) - CHUNKSIZE*(len(chunks)-1)
-			chunkId = END_CHUNK
 		} else {
 			size = CHUNKSIZE
-			chunkId = i
 		}
 
-		fmt.Printf("[Server] Sending chunk %v of size %v\n", i, size)
+		fmt.Printf("[Server] Sending chunk %v, %v pieces\n", i, pieces)
 		// hasher := sha512.New512_224()
 		// hasher.Write(chunks[i])
 
-		enc, err := full.NewFullRLNCEncoderWithPieceCount(chunks[i], PIECECNT)
-		if err != nil {
-			log.Printf("Error: %s\n", err.Error())
-			return
-		}
-
 		codedPieces := make([]*kodr.CodedPiece, 0, CODEDPIECECNT)
-		for j := 0; j < int(CODEDPIECECNT); j++ {
-			codedPieces = append(codedPieces, enc.CodedPiece())
+
+		if encode {
+			enc, err := full.NewFullRLNCEncoderWithPieceCount(chunks[i], PIECECNT)
+			if err != nil {
+				log.Printf("Error: %s\n", err.Error())
+				return
+			}
+
+			for j := 0; j < int(CODEDPIECECNT); j++ {
+				codedPieces = append(codedPieces, enc.CodedPiece())
+			}
 		}
 
-		for s := 0; s < int(CODEDPIECECNT); s++ {
-			pktE, err := GetXNCPkt(size, chunkId, codedPieces[s])
+		for s := 0; s < int(pieces); s++ {
+			var pktE []byte
+
+			if encode {
+				pktE, err = GetXNCEncPkt(size, i, len(chunks), codedPieces[s])
+			} else {
+				pktE, err = GetXNCPkt(size, i, len(chunks), chunks[i][s*PIECESIZE:(s+1)*PIECESIZE])
+			}
+
 			if err != nil {
 				fmt.Printf("Error encoding packet data: %v", err)
 				return
@@ -171,6 +184,11 @@ func sendFile(stream quic.Stream, filename string, encode bool) {
 				}
 			}
 		}
+	}
+
+	for i := 0; i < 1; i++ {
+		endpkt := EncodeEND(len(chunks) - 1)
+		stream.Write(endpkt)
 	}
 
 	fmt.Printf("[Server] Finished sending file\n")

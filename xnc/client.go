@@ -30,9 +30,16 @@ func Client(filename string, encode bool) ([]byte, time.Duration, float64) {
 
 	var initType byte
 	var frameSize int
+	var chunk []byte
 
-	initType = TYPE_INIT_ENC
-	frameSize = FRAMESIZE_ENC
+	if encode {
+		initType = TYPE_INIT_ENC
+		frameSize = FRAMESIZE_ENC
+	} else {
+		initType = TYPE_INIT
+		frameSize = FRAMESIZE
+		chunk = make([]byte, 0, CHUNKSIZE)
+	}
 
 	initpkt, err := EncodeInit(XNC_INIT{
 		Type:     initType,
@@ -54,7 +61,7 @@ func Client(filename string, encode bool) ([]byte, time.Duration, float64) {
 
 	rFile := make([]byte, 0)
 
-	decoders := make(map[int]*full.FullRLNCDecoder)
+	var decoders []*full.FullRLNCDecoder
 
 	fin := false
 
@@ -74,7 +81,22 @@ func Client(filename string, encode bool) ([]byte, time.Duration, float64) {
 			} else {
 				accu_recv += n
 				totalBytesRead += n
+
+				if accu_recv == ENDSIZE {
+					id, err := DecodeEND(pktE[:accu_recv])
+					if err != nil || id == -1 {
+						continue
+					} else {
+						fmt.Printf("[Client] Received END packet\n")
+						fin = true
+						break
+					}
+				}
 			}
+		}
+
+		if fin {
+			break
 		}
 
 		xncD, err := DecodeXNCPkt(pktE)
@@ -83,37 +105,52 @@ func Client(filename string, encode bool) ([]byte, time.Duration, float64) {
 			return nil, sess.GetRtt(), 0
 		}
 
-		pieceD := &kodr.CodedPiece{
-			Vector: xncD.Vector,
-			Piece:  xncD.Piece,
-		}
+		if encode {
+			if decoders == nil {
+				decoders = make([]*full.FullRLNCDecoder, xncD.ChunkNum)
+				for i := 0; i < xncD.ChunkNum; i++ {
+					decoders[i] = full.NewFullRLNCDecoder(PIECECNT)
+				}
+			}
 
-		if _, ok := decoders[xncD.ChunkId]; !ok {
-			decoders[xncD.ChunkId] = full.NewFullRLNCDecoder(PIECECNT)
-		}
+			pieceD := &kodr.CodedPiece{
+				Vector: xncD.Vector,
+				Piece:  xncD.Piece,
+			}
 
-		if err := decoders[xncD.ChunkId].AddPiece(pieceD); err != nil {
-			if errors.Is(err, kodr.ErrAllUsefulPiecesReceived) {
-				fmt.Printf("[Client] All useful pieces received\n")
-				break
-			} else {
-				fmt.Printf("[Client] Error adding pieces: %v", err)
-				return nil, sess.GetRtt(), 0
+			if err := decoders[xncD.ChunkId].AddPiece(pieceD); err != nil {
+				if errors.Is(err, kodr.ErrAllUsefulPiecesReceived) {
+					// fmt.Printf("[Client] All useful pieces received\n")
+					continue
+				} else {
+					fmt.Printf("[Client] Error adding pieces: %v", err)
+					return nil, sess.GetRtt(), 0
+				}
+			}
+
+			if decoders[xncD.ChunkId].IsDecoded() {
+				recvfile, err := GetFile(decoders[xncD.ChunkId])
+				if err != nil {
+					fmt.Printf("[Client] Error geting file: %v", err)
+					return nil, sess.GetRtt(), 0
+				}
+
+				rFile = append(rFile, recvfile[:xncD.ChunkSize]...)
+
+			}
+		} else {
+			chunk = append(chunk, xncD.Piece...)
+			if len(chunk) == CHUNKSIZE {
+				// fmt.Printf("[Client] Received chunk %v\n", xncD.ChunkId)
+
+				rFile = append(rFile, chunk[:xncD.ChunkSize]...)
+				chunk = make([]byte, 0, CHUNKSIZE)
 			}
 		}
 
-		if decoders[xncD.ChunkId].IsDecoded() {
-			recvfile, err := GetFile(decoders[xncD.ChunkId])
-			if err != nil {
-				fmt.Printf("[Client] Error geting file: %v", err)
-				return nil, sess.GetRtt(), 0
-			}
-
-			rFile = append(rFile, recvfile[:xncD.ChunkSize]...)
-
-			if xncD.ChunkId == END_CHUNK {
-				fin = true
-			}
+		if xncD.ChunkId == xncD.ChunkNum {
+			fmt.Printf("[Client] Finished decoding file\n")
+			fin = true
 		}
 	}
 

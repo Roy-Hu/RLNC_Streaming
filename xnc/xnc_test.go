@@ -60,7 +60,7 @@ func TestWhole(t *testing.T) {
 		decoder := full.NewFullRLNCDecoder(PIECECNT)
 
 		for s := 0; s < int(CODEDPIECECNT); s++ {
-			pktE, err := GetXNCPkt(size, i, codedPieces[s])
+			pktE, err := GetXNCEncPkt(size, i, len(chunks), codedPieces[s])
 			if err != nil {
 				t.Errorf("Error encoding packet data: %v", err)
 				return
@@ -114,8 +114,9 @@ func TestWhole(t *testing.T) {
 func TestOriginXNCPkt(t *testing.T) {
 	xnc := XNC{
 		ChunkId:   1,
-		Type:      byte(TYPE_XNC_ORG),
+		Type:      byte(TYPE_XNC),
 		ChunkSize: 4,
+		ChunkNum:  10,
 		Piece:     make([]byte, PIECESIZE),
 	}
 
@@ -176,6 +177,7 @@ func TestXNC(t *testing.T) {
 		ChunkId:   1,
 		Type:      TYPE_XNC_ENC,
 		ChunkSize: 4,
+		ChunkNum:  10,
 		Vector:    make([]byte, VECTORSIZE),
 		Piece:     make([]byte, PIECESIZE),
 	}
@@ -214,6 +216,10 @@ func XNCEqual(a, b XNC) bool {
 		return false
 	}
 	if a.ChunkSize != b.ChunkSize {
+		return false
+	}
+
+	if a.ChunkNum != b.ChunkNum {
 		return false
 	}
 	if !bytes.Equal(a.Piece, b.Piece) || !bytes.Equal(a.Vector, b.Vector) {

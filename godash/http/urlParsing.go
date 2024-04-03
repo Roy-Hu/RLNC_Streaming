@@ -477,7 +477,7 @@ func GetURL(requrl string, isByteRangeMPD bool, startRange int, endRange int, qu
 		// Use the path package to extract the file name.
 		fileName := path.Base(u.Path)
 
-		bytes, rtt, _ := xnc.Client(fileName, true)
+		bytes, rtt, _ := xnc.Client(fileName, false)
 
 		return bytes, rtt, "quic-xnc"
 	} else {

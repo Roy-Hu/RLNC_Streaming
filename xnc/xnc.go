@@ -10,34 +10,50 @@ import (
 
 // 8192 bits = 1024 bytes
 var RNGSEED int64 = int64(1)
-
-var TYPE_ACK byte = 0x2
 var TYPE_INIT_ENC byte = 0x3
-var TYPE_INIT_ORG byte = 0x4
+var TYPE_INIT byte = 0x4
 var TYPE_XNC_ENC byte = 0x5
-var TYPE_XNC_ORG byte = 0x6
+var TYPE_XNC byte = 0x6
+var TYPE_END byte = 0x7
 
 var TYPESIZE int = 1
 var IDSIZE int = 4
+var NUMSIZE int = 4
 var FILESIZESIZE int = 4
 
 var VECTORSIZE int = CHUNKSIZE / 1024
 var PIECESIZE int = CHUNKSIZE / VECTORSIZE
 
-var FRAMESIZE_ENC int = TYPESIZE + IDSIZE + FILESIZESIZE + VECTORSIZE + PIECESIZE
-var FRAMESIZE_ORG int = TYPESIZE + IDSIZE + FILESIZESIZE + PIECESIZE
-var ACKSIZE int = TYPESIZE + IDSIZE
+var FRAMESIZE_ENC int = TYPESIZE + IDSIZE + NUMSIZE + FILESIZESIZE + VECTORSIZE + PIECESIZE
+var FRAMESIZE int = TYPESIZE + IDSIZE + NUMSIZE + FILESIZESIZE + PIECESIZE
+var ENDSIZE int = TYPESIZE + IDSIZE
 var INITSIZE int = 128
 var INFOSIZE int = TYPESIZE + 4 + 4
 
-var END_CHUNK int = 8192
-
 var (
 	PIECECNT      uint = uint(VECTORSIZE)
-	CODEDPIECECNT uint = PIECECNT
+	CODEDPIECECNT uint = PIECECNT + 1
 )
 
-func GetXNCPkt(size int, id int, codepiece *kodr.CodedPiece) ([]byte, error) {
+func GetXNCPkt(size int, id int, chunknum int, codepiece []byte) ([]byte, error) {
+	xncE := XNC{
+		Type:      TYPE_XNC,
+		ChunkId:   id,
+		ChunkSize: size,
+		ChunkNum:  chunknum,
+		Piece:     codepiece,
+	}
+
+	pktE, err := EncodeXNCPkt(xncE)
+	if err != nil {
+		return nil, fmt.Errorf("Error encoding packet data: %v", err)
+
+	}
+
+	return pktE, nil
+}
+
+func GetXNCEncPkt(size int, id int, chunknum int, codepiece *kodr.CodedPiece) ([]byte, error) {
 	vec := make([]byte, 0)
 	piece := make([]byte, 0)
 
@@ -48,6 +64,7 @@ func GetXNCPkt(size int, id int, codepiece *kodr.CodedPiece) ([]byte, error) {
 		Type:      TYPE_XNC_ENC,
 		ChunkId:   id,
 		ChunkSize: size,
+		ChunkNum:  chunknum,
 		Vector:    vec,
 		Piece:     piece,
 	}
@@ -80,9 +97,11 @@ func GetFile(decoder *full.FullRLNCDecoder) ([]byte, error) {
 type XNC struct {
 	Type      byte
 	ChunkId   int
+	ChunkNum  int
 	ChunkSize int
 	Vector    []byte
 	Piece     []byte
+	End       bool
 }
 
 type XNC_ACK struct {
@@ -132,7 +151,7 @@ func EncodeInit(data XNC_INIT) ([]byte, error) {
 }
 
 func DecodeInit(data []byte) (XNC_INIT, error) {
-	if data[0] != TYPE_INIT_ENC && data[0] != TYPE_INIT_ORG {
+	if data[0] != TYPE_INIT_ENC && data[0] != TYPE_INIT {
 		return XNC_INIT{}, fmt.Errorf("pkt type is not correct\n")
 	}
 
@@ -144,45 +163,36 @@ func DecodeInit(data []byte) (XNC_INIT, error) {
 	return init, nil
 }
 
-// XNC pkt
-// Type + ChunkId + FileSize+ Packet
-func EncodeAck(data XNC_ACK) ([]byte, error) {
+func EncodeEND(id int) []byte {
 	pkt := []byte{}
 
-	pkt = append(pkt, data.Type)
+	pkt = append(pkt, TYPE_END)
 
 	chunkId := make([]byte, 4)
-	binary.BigEndian.PutUint32(chunkId, uint32(data.ChunkId))
+	binary.BigEndian.PutUint32(chunkId, uint32(id))
 	pkt = append(pkt, chunkId...)
 
-	return pkt, nil
+	return pkt
 }
 
-func DecodeAck(data []byte) (XNC_ACK, error) {
-	if len(data) != ACKSIZE {
-		return XNC_ACK{}, fmt.Errorf("XNC pkt size is not correct\n")
+func DecodeEND(pkt []byte) (int, error) {
+	if pkt[0] != TYPE_END {
+		return -1, fmt.Errorf("pkt type is not correct\n")
 	}
 
-	if data[0] != TYPE_ACK {
-		return XNC_ACK{}, fmt.Errorf("pkt type is not correct\n")
-	}
+	id := int(binary.BigEndian.Uint32(pkt[1:5]))
 
-	ack := XNC_ACK{}
-
-	ack.Type = data[0]
-	ack.ChunkId = int(binary.BigEndian.Uint32(data[1:5]))
-
-	return ack, nil
+	return id, nil
 }
 
 func EncodeXNCPkt(data XNC) ([]byte, error) {
 	if data.Type == TYPE_XNC_ENC && (len(data.Vector) != VECTORSIZE || len(data.Piece) != PIECESIZE) {
 		return nil, fmt.Errorf("XNC Vector %d or Piece %d size is not correct\n", len(data.Vector), len(data.Piece))
-	} else if data.Type == TYPE_XNC_ORG && len(data.Piece) != PIECESIZE {
+	} else if data.Type == TYPE_XNC && len(data.Piece) != PIECESIZE {
 		return nil, fmt.Errorf("XNC pkt byte size is not correct\n")
 	}
 
-	pkt := []byte{}
+	pkt := make([]byte, 0, FRAMESIZE_ENC)
 
 	pkt = append(pkt, data.Type)
 
@@ -194,10 +204,14 @@ func EncodeXNCPkt(data XNC) ([]byte, error) {
 	binary.BigEndian.PutUint32(pktsize, uint32(data.ChunkSize))
 	pkt = append(pkt, pktsize...)
 
+	chunknumsize := make([]byte, 4)
+	binary.BigEndian.PutUint32(chunknumsize, uint32(data.ChunkNum))
+	pkt = append(pkt, chunknumsize...)
+
 	if data.Type == TYPE_XNC_ENC {
 		pkt = append(pkt, data.Vector[:VECTORSIZE]...)
 		pkt = append(pkt, data.Piece[:PIECESIZE]...)
-	} else if data.Type == TYPE_XNC_ORG {
+	} else if data.Type == TYPE_XNC {
 		pkt = append(pkt, data.Piece[:PIECESIZE]...)
 	}
 
@@ -205,7 +219,7 @@ func EncodeXNCPkt(data XNC) ([]byte, error) {
 }
 
 func DecodeXNCPkt(data []byte) (XNC, error) {
-	if len(data) != FRAMESIZE_ENC && len(data) != FRAMESIZE_ORG {
+	if len(data) != FRAMESIZE_ENC && len(data) != FRAMESIZE {
 		return XNC{}, fmt.Errorf("XNC pkt size %d is not correct\n", len(data))
 	}
 
@@ -213,12 +227,13 @@ func DecodeXNCPkt(data []byte) (XNC, error) {
 	xnc.Type = data[0]
 	xnc.ChunkId = int(binary.BigEndian.Uint32(data[1:5]))
 	xnc.ChunkSize = int(binary.BigEndian.Uint32(data[5:9]))
+	xnc.ChunkNum = int(binary.BigEndian.Uint32(data[9:13]))
 
 	if xnc.Type == TYPE_XNC_ENC {
-		xnc.Vector = data[9 : 9+VECTORSIZE]
-		xnc.Piece = data[9+VECTORSIZE : 9+VECTORSIZE+PIECESIZE]
-	} else if xnc.Type == TYPE_XNC_ORG {
-		xnc.Piece = data[9:]
+		xnc.Vector = data[13 : 13+VECTORSIZE]
+		xnc.Piece = data[13+VECTORSIZE : 13+VECTORSIZE+PIECESIZE]
+	} else if xnc.Type == TYPE_XNC {
+		xnc.Piece = data[13:]
 	} else {
 		return XNC{}, fmt.Errorf("Unknow XNC type\n")
 	}
