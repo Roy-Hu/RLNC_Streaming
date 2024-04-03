@@ -1,5 +1,5 @@
 {
-        "adapt" : "arbiter",
+        "adapt" : "conventional",
         "codec" : "h264",
         "debug" : "on",
         "initBuffer" : 2,

@@ -8,11 +8,6 @@ import (
 	"github.com/itzmeanjan/kodr/full"
 )
 
-var (
-	PieceCount      uint = 128
-	CodedPieceCount uint = PieceCount
-)
-
 // 8192 bits = 1024 bytes
 var RNGSEED int64 = int64(1)
 
@@ -26,8 +21,7 @@ var TYPESIZE int = 1
 var IDSIZE int = 4
 var FILESIZESIZE int = 4
 
-var VECTORSIZE int = 128
-var CHUNKSIZE int = 1 << 17
+var VECTORSIZE int = CHUNKSIZE / 1024
 var PIECESIZE int = CHUNKSIZE / VECTORSIZE
 
 var FRAMESIZE_ENC int = TYPESIZE + IDSIZE + FILESIZESIZE + VECTORSIZE + PIECESIZE
@@ -37,6 +31,11 @@ var INITSIZE int = 128
 var INFOSIZE int = TYPESIZE + 4 + 4
 
 var END_CHUNK int = 8192
+
+var (
+	PIECECNT      uint = uint(VECTORSIZE)
+	CODEDPIECECNT uint = PIECECNT
+)
 
 func GetXNCPkt(size int, id int, codepiece *kodr.CodedPiece) ([]byte, error) {
 	vec := make([]byte, 0)

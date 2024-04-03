@@ -46,20 +46,20 @@ func TestWhole(t *testing.T) {
 		hasher := sha512.New512_224()
 		hasher.Write(chunks[i])
 
-		enc, err := full.NewFullRLNCEncoderWithPieceCount(chunks[i], PieceCount)
+		enc, err := full.NewFullRLNCEncoderWithPieceCount(chunks[i], PIECECNT)
 		if err != nil {
 			log.Printf("Error: %s\n", err.Error())
 			return
 		}
 
-		codedPieces := make([]*kodr.CodedPiece, 0, CodedPieceCount)
-		for i := 0; i < int(CodedPieceCount); i++ {
+		codedPieces := make([]*kodr.CodedPiece, 0, CODEDPIECECNT)
+		for i := 0; i < int(CODEDPIECECNT); i++ {
 			codedPieces = append(codedPieces, enc.CodedPiece())
 		}
 
-		decoder := full.NewFullRLNCDecoder(PieceCount)
+		decoder := full.NewFullRLNCDecoder(PIECECNT)
 
-		for s := 0; s < int(CodedPieceCount); s++ {
+		for s := 0; s < int(CODEDPIECECNT); s++ {
 			pktE, err := GetXNCPkt(size, i, codedPieces[s])
 			if err != nil {
 				t.Errorf("Error encoding packet data: %v", err)

@@ -23,7 +23,7 @@ func Server(ctx context.Context, rootDir string) {
 		return
 	}
 
-	listener, err := quic.ListenAddr("localhost:4242", tlsConf, quicConf)
+	listener, err := quic.ListenAddr(clientaddr, tlsConf, quicConf)
 	if err != nil {
 		fmt.Println("[Server] Failed to start server:", err)
 		return
@@ -64,37 +64,39 @@ func handleSession(sess quic.Session, rootDir string) {
 			return // Or continue to try accepting new streams, depending on your error handling strategy.
 		}
 
-		fmt.Println("[Server] Stream accepted, waiting for init packet...")
+		go func() {
+			fmt.Println("[Server] Stream accepted, waiting for init packet...")
 
-		accu_recv := 0
-		buffer := make([]byte, INITSIZE)
-		for accu_recv < INITSIZE {
-			n, err := stream.Read(buffer[accu_recv:])
-			if err != nil {
-				if err == io.EOF {
-					fmt.Errorf("[Server] Stream closed by server")
-					break
+			accu_recv := 0
+			buffer := make([]byte, INITSIZE)
+			for accu_recv < INITSIZE {
+				n, err := stream.Read(buffer[accu_recv:])
+				if err != nil {
+					if err == io.EOF {
+						fmt.Printf("[Server] Stream closed by server")
+						break
+					}
+					fmt.Println("[Server] Error reading from stream:", err)
+					continue // or handle the error appropriately
+				} else {
+					accu_recv += n
 				}
-				fmt.Println("[Server] Error reading from stream:", err)
-				continue // or handle the error appropriately
-			} else {
-				accu_recv += n
 			}
-		}
 
-		init, err := DecodeInit(buffer)
-		if err != nil {
-			fmt.Errorf("[Server] Error decoding init packet: %v", err)
-			return
-		}
-		fmt.Printf("[Server] Client request file: %v\n", init.Filename)
-		filepath := filepath.Join(rootDir, init.Filename)
+			init, err := DecodeInit(buffer)
+			if err != nil {
+				fmt.Printf("[Server] Error decoding init packet: %v", err)
+				return
+			}
+			fmt.Printf("[Server] Client request file: %v\n", init.Filename)
+			filepath := filepath.Join(rootDir, init.Filename)
 
-		if init.Type == TYPE_INIT_ENC {
-			sendFile(stream, filepath, true)
-		} else {
-			sendFile(stream, filepath, false)
-		}
+			if init.Type == TYPE_INIT_ENC {
+				sendFile(stream, filepath, true)
+			} else {
+				sendFile(stream, filepath, false)
+			}
+		}()
 	}
 }
 
@@ -135,19 +137,18 @@ func sendFile(stream quic.Stream, filename string, encode bool) {
 		// hasher := sha512.New512_224()
 		// hasher.Write(chunks[i])
 
-		fmt.Printf("Chunk size %d\n", len(chunks[i]))
-		enc, err := full.NewFullRLNCEncoderWithPieceCount(chunks[i], PieceCount)
+		enc, err := full.NewFullRLNCEncoderWithPieceCount(chunks[i], PIECECNT)
 		if err != nil {
 			log.Printf("Error: %s\n", err.Error())
 			return
 		}
 
-		codedPieces := make([]*kodr.CodedPiece, 0, CodedPieceCount)
-		for j := 0; j < int(CodedPieceCount); j++ {
+		codedPieces := make([]*kodr.CodedPiece, 0, CODEDPIECECNT)
+		for j := 0; j < int(CODEDPIECECNT); j++ {
 			codedPieces = append(codedPieces, enc.CodedPiece())
 		}
 
-		for s := 0; s < int(CodedPieceCount); s++ {
+		for s := 0; s < int(CODEDPIECECNT); s++ {
 			pktE, err := GetXNCPkt(size, chunkId, codedPieces[s])
 			if err != nil {
 				fmt.Printf("Error encoding packet data: %v", err)
@@ -172,5 +173,5 @@ func sendFile(stream quic.Stream, filename string, encode bool) {
 		}
 	}
 
-	fmt.Printf("[Server]Finished sending file\n")
+	fmt.Printf("[Server] Finished sending file\n")
 }
