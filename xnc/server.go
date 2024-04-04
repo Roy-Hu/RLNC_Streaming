@@ -14,12 +14,15 @@ import (
 
 	"github.com/itzmeanjan/kodr"
 	"github.com/itzmeanjan/kodr/full"
-	"github.com/lucas-clemente/quic-go"
+	"github.com/quic-go/quic-go"
 )
 
 func Server(ctx context.Context, rootDir string) {
 
-	quicConf := &quic.Config{}
+	quicConf := &quic.Config{
+		EnableDatagrams: true,
+	}
+
 	tlsConf := GenerateTLSConfig()
 	if tlsConf == nil {
 		return
@@ -38,7 +41,8 @@ func Server(ctx context.Context, rootDir string) {
 			fmt.Println("[Server] Server shutting down")
 			return
 		default:
-			sess, err := listener.Accept()
+			ctx := context.Background()
+			sess, err := listener.Accept(ctx)
 			if err != nil {
 				fmt.Println("[Server] Failed to accept session:", err)
 				return
@@ -49,60 +53,63 @@ func Server(ctx context.Context, rootDir string) {
 	}
 }
 
-func handleSession(sess quic.Session, rootDir string) {
+func handleSession(sess quic.Connection, rootDir string) {
 	// After file is fully received
 	fmt.Println("[Server] Session started, waiting for file transfers...")
+	ctx := context.Background()
 
-	for {
-		// Accept a new stream within the session.
-		stream, err := sess.AcceptStream() // Using context.Background() for simplicity; adjust as needed.
+	// for {
+	// Accept a new stream within the session.
+	// stream, err := sess.AcceptStream(ctx) // Using context.Background() for simplicity; adjust as needed.
+	// if err != nil {
+	// 	if err == io.EOF {
+	// 		// The session was closed gracefully.
+	// 		fmt.Println("[Server] Session closed by client.")
+	// 		return
+	// 	}
+	// 	fmt.Printf("[Server] Error accepting stream: %v\n", err)
+	// 	return // Or continue to try accepting new streams, depending on your error handling strategy.
+	// }
+
+	// go func() {
+	fmt.Println("[Server] Stream accepted, waiting for init packet...")
+
+	accu_recv := 0
+	buffer := make([]byte, 0, INITSIZE)
+	for accu_recv < INITSIZE {
+		msg, err := sess.ReceiveMessage(ctx)
+		n := len(msg)
+		buffer = append(buffer, msg...)
 		if err != nil {
 			if err == io.EOF {
-				// The session was closed gracefully.
-				fmt.Println("[Server] Session closed by client.")
-				return
+				fmt.Printf("[Server] Stream closed by server")
+				break
 			}
-			fmt.Printf("[Server] Error accepting stream: %v\n", err)
-			return // Or continue to try accepting new streams, depending on your error handling strategy.
+			fmt.Println("[Server] Error reading from stream:", err)
+			continue // or handle the error appropriately
+		} else {
+			accu_recv += n
 		}
-
-		go func() {
-			fmt.Println("[Server] Stream accepted, waiting for init packet...")
-
-			accu_recv := 0
-			buffer := make([]byte, INITSIZE)
-			for accu_recv < INITSIZE {
-				n, err := stream.Read(buffer[accu_recv:])
-				if err != nil {
-					if err == io.EOF {
-						fmt.Printf("[Server] Stream closed by server")
-						break
-					}
-					fmt.Println("[Server] Error reading from stream:", err)
-					continue // or handle the error appropriately
-				} else {
-					accu_recv += n
-				}
-			}
-
-			init, err := DecodeInit(buffer)
-			if err != nil {
-				fmt.Printf("[Server] Error decoding init packet: %v", err)
-				return
-			}
-			fmt.Printf("[Server] Client request file: %v\n", init.Filename)
-			filepath := filepath.Join(rootDir, init.Filename)
-
-			if init.Type == TYPE_INIT_ENC {
-				sendFile(stream, filepath, true)
-			} else {
-				sendFile(stream, filepath, false)
-			}
-		}()
 	}
+
+	init, err := DecodeInit(buffer)
+	if err != nil {
+		fmt.Printf("[Server] Error decoding init packet: %v", err)
+		return
+	}
+	fmt.Printf("[Server] Client request file: %v\n", init.Filename)
+	filepath := filepath.Join(rootDir, init.Filename)
+
+	if init.Type == TYPE_INIT_ENC {
+		sendFile(sess, filepath, true)
+	} else {
+		sendFile(sess, filepath, false)
+	}
+	// }()
+	// }
 }
 
-func sendFile(stream quic.Stream, filename string, encode bool) {
+func sendFile(sess quic.Connection, filename string, encode bool) {
 	rand.Seed(42)
 
 	file, err := os.Open(filename)
@@ -170,7 +177,7 @@ func sendFile(stream quic.Stream, filename string, encode bool) {
 				return
 			}
 
-			_, err = stream.Write(pktE)
+			err = sess.SendMessage(pktE)
 			if err != nil {
 				if err == io.EOF {
 					// The stream has been closed by the server, gracefully exit the loop.
@@ -186,13 +193,13 @@ func sendFile(stream quic.Stream, filename string, encode bool) {
 				}
 			}
 			// loss debug
-			// fmt.Printf("[Server] Chunk %d, sent %d\n", i, s)
+			fmt.Printf("[Server] Chunk %d, sent %d\n", i, s)
 		}
 	}
 
 	for i := 0; i < 5; i++ {
 		endpkt := EncodeEND(len(chunks)-1, encode)
-		stream.Write(endpkt)
+		err = sess.SendMessage(endpkt)
 		time.Sleep(5 * time.Millisecond)
 	}
 

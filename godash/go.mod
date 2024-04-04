@@ -4,7 +4,7 @@ module github.com/uccmisl/godash
 
 go 1.17
 
-replace github.com/lucas-clemente/quic-go => ../mp-quic
+// replace github.com/lucas-clemente/quic-go => ../mp-quic
 
 replace github.com/comp529/xnc => ../xnc
 

@@ -33,7 +33,7 @@ var (
 	PIECECNT      uint = uint(VECTORSIZE)
 	CODEDPIECECNT uint = PIECECNT + 1
 	// loss debug
-	// CODEDPIECECNT uint = PIECECNT*2
+	// CODEDPIECECNT uint = PIECECNT * 2
 )
 
 func GetXNCPkt(size int, id int, chunknum int, codepiece []byte) ([]byte, error) {

@@ -1,6 +1,7 @@
 package xnc
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -10,23 +11,27 @@ import (
 
 	"github.com/itzmeanjan/kodr"
 	"github.com/itzmeanjan/kodr/full"
-	"github.com/lucas-clemente/quic-go"
+	"github.com/quic-go/quic-go"
 )
 
 func Client(filename string, encode bool) ([]byte, time.Duration, float64) {
 	rand.Seed(42)
+	ctx := context.Background()
 
 	fmt.Printf("[Client] Starting client, request file %v\n", filename)
-	quicConf := &quic.Config{}
-	sess, err := quic.DialAddr(serveraddr, &tls.Config{InsecureSkipVerify: true}, quicConf)
+	quicConf := &quic.Config{
+		EnableDatagrams: true,
+	}
+
+	sess, err := quic.DialAddr(ctx, serveraddr, &tls.Config{InsecureSkipVerify: true}, quicConf)
 	if err != nil {
 		fmt.Printf("[Client] Error dialing server: %v", err)
 	}
 
-	stream, err := sess.OpenStreamSync()
-	if err != nil {
-		fmt.Printf("[Client] Error opening stream: %v", err)
-	}
+	// stream, err := sess.OpenStreamSync(ctx)
+	// if err != nil {
+	// 	fmt.Printf("[Client] Error opening stream: %v", err)
+	// }
 
 	var initType byte
 	var frameSize int
@@ -51,7 +56,8 @@ func Client(filename string, encode bool) ([]byte, time.Duration, float64) {
 	}
 
 	// Send the filename
-	_, err = stream.Write(initpkt)
+
+	err = sess.SendMessage(initpkt)
 	if err != nil {
 		fmt.Printf("[Client] Error writing init packet: %v", err)
 	}
@@ -65,10 +71,15 @@ func Client(filename string, encode bool) ([]byte, time.Duration, float64) {
 
 	for {
 		accu_recv := 0
-		pktE := make([]byte, frameSize)
+		pktE := make([]byte, 0, frameSize)
 
 		for accu_recv < frameSize {
-			n, err := stream.Read(pktE[accu_recv:])
+
+			msg, err := sess.ReceiveMessage(ctx)
+			n := len(msg)
+
+			pktE = append(pktE, msg...)
+
 			if err != nil {
 				if err == io.EOF {
 					fmt.Errorf("[Client] Stream closed by server")
@@ -116,7 +127,7 @@ func Client(filename string, encode bool) ([]byte, time.Duration, float64) {
 				}
 			}
 			// loss debug
-			// fmt.Printf("[Client] Chunk %d, recv %d, need %d\n", xncD.ChunkId, decoders[xncD.ChunkId].GetRecv(), decoders[xncD.ChunkId].GetExpt())
+			fmt.Printf("[Client] Chunk %d, recv %d, need %d\n", xncD.ChunkId, decoders[xncD.ChunkId].GetRecv(), decoders[xncD.ChunkId].GetExpt())
 
 			if decoders[xncD.ChunkId].IsDecoded() {
 				recvfile, err := GetFile(decoders[xncD.ChunkId])
@@ -148,8 +159,9 @@ func Client(filename string, encode bool) ([]byte, time.Duration, float64) {
 		}
 	}
 
-	stream.Context().Done()
-	stream.Close()
+	// stream.Context().Done()
+	// stream.Close()
+	ctx.Done()
 
 	duration := float64(time.Since(startTime).Microseconds()) / 1000000.0
 	kbps := float64(totalBytesRead*8) / duration / 1000.
