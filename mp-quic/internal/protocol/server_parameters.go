@@ -93,7 +93,8 @@ const MaxTrackedSentPackets = 2 * DefaultMaxCongestionWindow
 const MaxTrackedReceivedAckRanges = DefaultMaxCongestionWindow
 
 // MaxPacketsReceivedBeforeAckSend is the number of packets that can be received before an ACK frame is sent
-const MaxPacketsReceivedBeforeAckSend = 20
+const encodedGroup = 128
+const MaxPacketsReceivedBeforeAckSend = encodedGroup / 10
 
 // MaxNonRetransmittablePackets is the maximum number of non-retransmittable packets that we send in a row
 const MaxNonRetransmittablePackets = 19
