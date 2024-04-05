@@ -177,7 +177,7 @@ func (h *sentPacketHandler) SentPacket(packet *Packet) error {
 
 	h.updateLossDetectionAlarm()
 
-	if h.encodedPackets == 128 {
+	if h.encodedPackets == protocol.encodedGroup {
 		h.encodedPackets = 0
 		h.detectLostPackets()
 	}
