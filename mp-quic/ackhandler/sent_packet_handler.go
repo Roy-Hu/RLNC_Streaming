@@ -31,6 +31,8 @@ const (
 	minRetransmissionTime = 200 * time.Millisecond
 	// Minimum tail loss probe time in ms
 	minTailLossProbeTimeout = 10 * time.Millisecond
+	// Max loss percentage before TLPs are sent every 128 packets
+	maxLossPercentage = 20
 )
 
 var (
@@ -179,8 +181,11 @@ func (h *sentPacketHandler) SentPacket(packet *Packet) error {
 
 	if h.encodedPackets == protocol.encodedGroup {
 		h.encodedPackets = 0
-		h.retransmitTLP()
-		h.tlpCount++
+		lossPercentage := h.CalculateLossPercentage()
+		if lossPercentage >= maxLossPercentage {
+			h.retransmitTLP()
+			h.tlpCount++
+		}
 		h.detectLostPackets()
 	}
 
@@ -631,4 +636,11 @@ func (h *sentPacketHandler) garbageCollectSkippedPackets() {
 		}
 	}
 	h.skippedPackets = h.skippedPackets[deleteIndex:]
+}
+
+func (h *sentPacketHandler) CalculateLossPercentage() float64 {
+    if h.packets == 0 {
+        return 0.0
+    }
+    return float64(h.losses) / float64(h.packets) * 100.0
 }
