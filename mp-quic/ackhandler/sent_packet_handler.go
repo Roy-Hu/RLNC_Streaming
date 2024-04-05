@@ -150,6 +150,7 @@ func (h *sentPacketHandler) SentPacket(packet *Packet) error {
 
 	// Update some statistics
 	h.packets++
+	h.encodedPackets++
 
 	// XXX RTO and TLP are recomputed based on the possible last sent retransmission. Is it ok like this?
 	h.lastSentTime = now
@@ -175,6 +176,12 @@ func (h *sentPacketHandler) SentPacket(packet *Packet) error {
 	)
 
 	h.updateLossDetectionAlarm()
+
+	if h.encodedPackets == 128 {
+		h.encodedPackets = 0
+		h.detectLostPackets()
+	}
+
 	return nil
 }
 
