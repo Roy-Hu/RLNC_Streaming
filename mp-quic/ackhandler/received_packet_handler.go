@@ -28,7 +28,7 @@ type receivedPacketHandler struct {
 	version protocol.VersionNumber
 
 	packets uint64
-	encodedpackets uint64
+	encodedPackets uint64
 }
 
 // NewReceivedPacketHandler creates a new receivedPacketHandler
