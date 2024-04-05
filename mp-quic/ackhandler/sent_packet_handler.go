@@ -179,6 +179,8 @@ func (h *sentPacketHandler) SentPacket(packet *Packet) error {
 
 	if h.encodedPackets == protocol.encodedGroup {
 		h.encodedPackets = 0
+		h.retransmitTLP()
+		h.tlpCount++
 		h.detectLostPackets()
 	}
 
