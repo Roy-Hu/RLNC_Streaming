@@ -85,7 +85,7 @@ type sentPacketHandler struct {
 	packets         uint64
 	retransmissions uint64
 	losses          uint64
-	rlncEncodedPackets uint64
+	encodedPackets uint64
 }
 
 // NewSentPacketHandler creates a new sentPacketHandler
