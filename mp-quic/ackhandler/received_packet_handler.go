@@ -98,6 +98,11 @@ func (h *receivedPacketHandler) maybeQueueAck(packetNumber protocol.PacketNumber
 			h.ackQueued = true
 		}
 	}
+	
+	//Send ack after every 10% of encoded group (parameter set in server_parameters.go)
+	if h.packetsReceivedSinceLastAck >= protocol.MaxPacketsReceivedBeforeAckSend {
+		h.ackQueued = true
+	}
 
 	// if the packet number is smaller than the largest acked packet, it must have been reported missing with the last ACK
 	// note that it cannot be a duplicate because they're already filtered out by ReceivedPacket()
