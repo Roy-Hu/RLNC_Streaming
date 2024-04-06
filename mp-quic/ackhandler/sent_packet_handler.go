@@ -88,6 +88,7 @@ type sentPacketHandler struct {
 	retransmissions uint64
 	losses          uint64
 	encodedPackets uint64
+	rtoloss			uint64
 }
 
 // NewSentPacketHandler creates a new sentPacketHandler
@@ -115,8 +116,8 @@ func NewSentPacketHandler(rttStats *congestion.RTTStats, cong congestion.SendAlg
 	}
 }
 
-func (h *sentPacketHandler) GetStatistics() (uint64, uint64, uint64) {
-	return h.packets, h.retransmissions, h.losses
+func (h *sentPacketHandler) GetStatistics() (uint64, uint64, uint64, uint64) {
+	return h.packets, h.retransmissions, h.losses, h.rtoloss
 }
 
 func (h *sentPacketHandler) largestInOrderAcked() protocol.PacketNumber {
@@ -569,9 +570,11 @@ func (h *sentPacketHandler) queueRTO(el *PacketElement) {
 		packet.PacketNumber,
 		h.packetHistory.Len(),
 	)
-	h.queuePacketForRetransmission(el)
+	//h.queuePacketForRetransmission(el)
 	h.losses++
+	h.rtoloss++
 	h.congestion.OnPacketLost(packet.PacketNumber, packet.Length, h.bytesInFlight)
+	h.packetHistory.Remove(el)
 }
 
 func (h *sentPacketHandler) queuePacketForRetransmission(packetElement *PacketElement) {
