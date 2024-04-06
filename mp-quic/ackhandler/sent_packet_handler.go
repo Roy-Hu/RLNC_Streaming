@@ -187,7 +187,9 @@ func (h *sentPacketHandler) SentPacket(packet *Packet) error {
 			h.retransmitTLP()
 			h.tlpCount++
 		}
-		h.detectLostPackets()
+		else if lossPercentage >= maxLossPercentage/2 {
+			h.detectLostPackets()
+		}
 	}
 
 	return nil
